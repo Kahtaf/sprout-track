@@ -1,3 +1,4 @@
+import { historyRuntimeProvider } from './family-history';
 import {
   ExternalImportFile,
   ExternalImportPreview,
@@ -116,6 +117,8 @@ const babyBuddyRuntimeProvider: ExternalImportRuntimeProvider = {
 
 const runtimeProviders: readonly ExternalImportRuntimeProvider[] = [
   babyBuddyRuntimeProvider,
+  historyRuntimeProvider('nara'),
+  historyRuntimeProvider('babycare'),
 ];
 
 export function getExternalImportRuntimeProvider(

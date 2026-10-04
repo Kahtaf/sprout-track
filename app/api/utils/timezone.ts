@@ -10,57 +10,11 @@ import prisma from '../db';
  * @returns The detected system timezone string (e.g., 'America/Denver')
  */
 export function getSystemTimezone(): string {
+  const configured = process.env.TZ || 'America/Toronto';
   try {
-    // Try to get timezone from process.env.TZ
-    if (process.env.TZ) {
-      return process.env.TZ;
-    }
-    
-    // Use child_process to execute the system command to get timezone
-    // This is more reliable on server environments
-    const { execSync } = require('child_process');
-    
-    // Different commands based on platform
-    if (process.platform === 'darwin') { // macOS
-      const tzOutput = execSync('systemsetup -gettimezone').toString().trim();
-      // Extract timezone from "Time Zone: America/Denver" format
-      const match = tzOutput.match(/Time Zone: (.+)$/);
-      if (match && match[1]) {
-        return match[1];
-      }
-    } else if (process.platform === 'linux') {
-      try {
-        // Try /etc/timezone first (Debian, Ubuntu)
-        return execSync('cat /etc/timezone').toString().trim();
-      } catch (error) {
-        try {
-          // Try /etc/localtime as a symlink (RHEL, CentOS, Alpine)
-          const linkTarget = execSync('readlink -f /etc/localtime').toString().trim();
-          const match = linkTarget.match(/\/usr\/share\/zoneinfo\/(.+)$/);
-          if (match && match[1]) {
-            return match[1];
-          }
-        } catch (innerError) {
-          // Try TZ file (Alpine Linux)
-          try {
-            return execSync('cat /etc/TZ').toString().trim();
-          } catch (tzError) {
-            // Fallback to TZ environment variable or Intl API
-            if (process.env.TZ) {
-              return process.env.TZ;
-            }
-            return Intl.DateTimeFormat().resolvedOptions().timeZone;
-          }
-        }
-      }
-    }
-    
-    // Fallback to Intl API for Windows or other platforms
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
-  } catch (error) {
-    console.error('Error detecting system timezone:', error);
-    // Fallback to a safe default if detection fails
-    return 'UTC';
+    return new Intl.DateTimeFormat('en', { timeZone: configured }).resolvedOptions().timeZone;
+  } catch {
+    throw new Error('TZ must be a valid IANA timezone');
   }
 }
 

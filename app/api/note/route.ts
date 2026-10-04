@@ -34,7 +34,9 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     
     const note = await prisma.note.create({
       data: {
-        ...body,
+        babyId: body.babyId,
+        content: body.content,
+        category: body.category,
         time: timeUTC,
         caretakerId: caretakerId,
         familyId: userFamilyId,
@@ -113,10 +115,20 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       );
     }
 
-    // Convert time to UTC if provided
-    const data = body.time
-      ? { ...body, time: toUTC(body.time) }
-      : body;
+    // Only editable note fields may cross the API boundary. Ownership, IDs,
+    // soft-delete state, and nested Prisma operations are never client input.
+    if (body.babyId !== undefined) {
+      const baby = await prisma.baby.findFirst({
+        where: { id: body.babyId, familyId: userFamilyId, deletedAt: null },
+      });
+      if (!baby) return NextResponse.json({ success: false, error: 'Baby not found in this family.' }, { status: 404 });
+    }
+    const data = {
+      ...(body.time !== undefined ? { time: toUTC(body.time) } : {}),
+      ...(body.content !== undefined ? { content: body.content } : {}),
+      ...(body.category !== undefined ? { category: body.category } : {}),
+      ...(body.babyId !== undefined ? { babyId: body.babyId } : {}),
+    };
 
     const note = await prisma.note.update({
       where: {

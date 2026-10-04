@@ -1,7 +1,7 @@
 import {
   ExternalImportRecord,
   ExternalImportSource,
-} from '@/src/types/external-import';
+} from "@/src/types/external-import";
 
 export interface ExternalImportProvenanceKey {
   readonly familyId: string;
@@ -15,7 +15,7 @@ export function externalImportProvenanceKey(
   source: ExternalImportSource,
 ): ExternalImportProvenanceKey {
   if (!familyId.trim()) {
-    throw new Error('Family ID is required');
+    throw new Error("Family ID is required");
   }
 
   return {
@@ -30,23 +30,27 @@ export function externalImportTargetEntityType(
   record: ExternalImportRecord,
 ): string {
   switch (record.targetType) {
-    case 'baby':
-      return 'Baby';
-    case 'sleep':
-      return 'SleepLog';
-    case 'feed':
-      return 'FeedLog';
-    case 'diaper':
-      return 'DiaperLog';
-    case 'note':
-      return 'Note';
-    case 'measurement':
-      return 'Measurement';
-    case 'pump':
-      return 'PumpLog';
-    case 'play':
-      return 'PlayLog';
-    case 'medicine':
-      return 'MedicineLog';
+    case "baby":
+      return "Baby";
+    case "sleep":
+      return "SleepLog";
+    case "feed":
+      return "FeedLog";
+    case "diaper":
+      return "DiaperLog";
+    case "note":
+      return "Note";
+    case "measurement":
+      return "Measurement";
+    case "pump":
+      return "PumpLog";
+    case "play":
+      return "PlayLog";
+    case "bath":
+      return "BathLog";
+    case "milestone":
+      return "Milestone";
+    case "medicine":
+      return "MedicineLog";
   }
 }

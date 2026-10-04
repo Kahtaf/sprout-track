@@ -19,6 +19,7 @@ export interface BreastMilkFeedInventoryRow {
   bottleType: string | null;
   breastMilkAmount: number | null;
   sourcePumpId?: string | null;
+  sessionId?: string | null;
   notes?: string | null;
 }
 
@@ -102,7 +103,7 @@ export function calculateBreastMilkBalance({
   );
 
   const consumedTotal = feedLogs.reduce((total, log) => {
-    if (isAutoCreatedPumpFeed(log)) return total;
+    if (isAutoCreatedPumpFeed(log) || log.sessionId?.startsWith('history:')) return total;
 
     if (log.bottleType === 'Breast Milk' && log.amount != null) {
       return total + convertVolume(log.amount, log.unitAbbr || 'OZ', targetUnit);

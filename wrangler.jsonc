@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sprout-track-family",
+  "compatibility_date": "2026-10-04",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "main": "./worker/index.ts",
+  "assets": {
+    "directory": "dist/client",
+    "not_found_handling": "none",
+    "binding": "ASSETS"
+  },
+  "account_id": "416205d736823589c2010e4fb2c76b9d",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sprout-track-family",
+      "migrations_dir": "prisma/d1-migrations",
+      "database_id": "c4edafd6-31e8-4e61-b098-ad777dc2e53f"
+    }
+  ],
+  "vars": {
+    "DEPLOYMENT_MODE": "cloudflare",
+    "TZ": "America/Toronto",
+    "DATABASE_PROVIDER": "sqlite",
+    "COOKIE_SECURE": "true",
+    "ALLOW_FAMILY_SETUP": "false",
+    "ENABLE_LOG": "false"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.05
+  }
+}

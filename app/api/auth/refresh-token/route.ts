@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify the refresh token
-    const payload = verifyRefreshToken(refreshTokenCookie);
+    const payload = await verifyRefreshToken(refreshTokenCookie);
     if (!payload) {
       return NextResponse.json<ApiResponse<null>>(
         { success: false, error: 'Invalid or expired refresh token' },

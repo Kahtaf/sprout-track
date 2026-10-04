@@ -15,10 +15,13 @@ export async function POST(req: NextRequest) {
       token = authHeader.substring(7); // Remove 'Bearer ' prefix
       // Add the token to the blacklist
       if (token) {
-        invalidateToken(token);
+        await invalidateToken(token);
       }
     }
     
+    const refresh = req.cookies.get('refreshToken')?.value;
+    if (refresh) await invalidateToken(refresh);
+
     // Clear the caretakerId cookie (for backward compatibility)
     const response = NextResponse.json<ApiResponse<{ success: boolean }>>(
       {

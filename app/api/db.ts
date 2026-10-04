@@ -1,59 +1,19 @@
-import { PrismaClient, Prisma } from '@prisma/client';
-import { createPrismaAdapter } from '@/prisma/prisma-adapter';
+import { PrismaClient } from '@prisma/client/edge';
+import { PrismaD1 } from '@prisma/adapter-d1';
+import { getDatabaseBinding, getRequestDatabaseClients } from '@/src/lib/cloudflare/runtime';
+import { lazyRequestClient } from '@/prisma/request-client';
 
-// Canonical Prisma singleton for the app. Uses a shared global key so that
-// prisma/db.ts (used by seed.ts which can't resolve @/ aliases) and this
-// file always resolve to the same PrismaClient instance.
-
-const GLOBAL_KEY = '__sprout_prisma';
-
-const logLevels: Prisma.LogLevel[] = ['warn', 'error'];
-
-let prisma: PrismaClient;
-
-if (!(global as any)[GLOBAL_KEY]) {
-  (global as any)[GLOBAL_KEY] = new PrismaClient({
-    log: logLevels.map(level => ({
-      emit: 'stdout',
-      level,
-    })),
-    adapter: createPrismaAdapter(process.env.DATABASE_URL),
-  });
-}
-prisma = (global as any)[GLOBAL_KEY];
-
-/**
- * Reconnects the Prisma singleton after a database restore.
- * Ensures the in-process client uses the current DATABASE_URL and
- * opens a fresh connection to the restored database.
- */
-export async function reconnectPrisma() {
-  try {
-    await prisma.$disconnect();
-  } catch (e) {
-    // ignore disconnect errors
+// Routes import this without database I/O. Each request owns its own client.
+const prisma = lazyRequestClient<PrismaClient>(() => {
+  const clients = getRequestDatabaseClients();
+  let client = clients.get('main') as PrismaClient | undefined;
+  if (!client) {
+    client = new PrismaClient({ adapter: new PrismaD1(getDatabaseBinding()), log: ['error'] });
+    clients.set('main', client);
   }
-  await prisma.$connect();
-  console.log('✓ Prisma client reconnected');
-}
+  return client;
+});
 
-// Handle graceful shutdown
-const handleShutdown = async () => {
-  try {
-    await prisma.$disconnect();
-  } catch (error) {
-    console.error('Error disconnecting from database:', error);
-  }
-};
-
-// Remove any existing listeners to prevent duplicates
-process.removeAllListeners('beforeExit');
-process.removeAllListeners('SIGTERM');
-process.removeAllListeners('SIGINT');
-
-// Add single listeners for each event
-process.once('beforeExit', handleShutdown);
-process.once('SIGTERM', handleShutdown);
-process.once('SIGINT', handleShutdown);
-
+// D1 restore is managed by Wrangler/Cloudflare, not local file replacement.
+export async function reconnectPrisma() { await prisma.$disconnect(); }
 export default prisma;

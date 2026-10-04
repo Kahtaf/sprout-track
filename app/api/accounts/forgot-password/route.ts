@@ -45,7 +45,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<F
     const ip = getClientIP(req);
     
     // Check if the IP is locked out
-    const { locked, remainingTime } = checkIpLockout(ip);
+    const { locked, remainingTime } = await checkIpLockout(ip);
     if (locked) {
       return NextResponse.json<ApiResponse<ForgotPasswordResponse>>(
         {
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<F
 
     // Validate input
     if (!email) {
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       return NextResponse.json<ApiResponse<ForgotPasswordResponse>>(
         {
           success: false,
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<F
     }
 
     if (!isValidEmail(email)) {
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       return NextResponse.json<ApiResponse<ForgotPasswordResponse>>(
         {
           success: false,
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<F
     // This prevents email enumeration attacks
     if (!account) {
       // Still record as a failed attempt to prevent abuse
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       
       return NextResponse.json<ApiResponse<ForgotPasswordResponse>>(
         {
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<F
 
     // Check if account is verified
     if (!account.verified) {
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       return NextResponse.json<ApiResponse<ForgotPasswordResponse>>(
         {
           success: false,
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<F
     }
 
     // Reset failed attempts on successful request
-    resetFailedAttempts(ip);
+    await resetFailedAttempts(ip);
 
     return NextResponse.json<ApiResponse<ForgotPasswordResponse>>(
       {

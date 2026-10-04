@@ -12,9 +12,7 @@ export interface ExternalImportFile {
 }
 
 export type ExternalImportDetectionStatus =
-  | 'detected'
-  | 'unsupported'
-  | 'invalid';
+  "detected" | "unsupported" | "invalid";
 
 export interface ExternalImportFileDetection {
   readonly fileName: string;
@@ -48,9 +46,7 @@ export interface ExternalImportPreview {
 }
 
 export interface ExternalImportPreviewer {
-  previewFiles(
-    files: readonly ExternalImportFile[],
-  ): ExternalImportPreview;
+  previewFiles(files: readonly ExternalImportFile[]): ExternalImportPreview;
 }
 
 export interface ExternalImportSource {
@@ -58,10 +54,12 @@ export interface ExternalImportSource {
   readonly entityType: string;
   readonly recordId: string;
   readonly childId?: string;
+  readonly rawSource?: string;
+  readonly reviewFlags?: readonly string[];
 }
 
 export interface ExternalImportBabyRecord {
-  readonly targetType: 'baby';
+  readonly targetType: "baby";
   readonly source: ExternalImportSource;
   readonly firstName: string;
   readonly lastName: string;
@@ -69,17 +67,17 @@ export interface ExternalImportBabyRecord {
 }
 
 export interface ExternalImportSleepRecord {
-  readonly targetType: 'sleep';
+  readonly targetType: "sleep";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly startTime: string;
   readonly endTime: string;
-  readonly type: 'NAP' | 'NIGHT_SLEEP';
+  readonly type: "NAP" | "NIGHT_SLEEP";
   readonly notes?: string;
 }
 
 export interface ExternalImportNoteRecord {
-  readonly targetType: 'note';
+  readonly targetType: "note";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly time: string;
@@ -95,96 +93,100 @@ export type ExternalImportRecord =
   | ExternalImportMeasurementRecord
   | ExternalImportPumpRecord
   | ExternalImportPlayRecord
-  | ExternalImportMedicineRecord;
+  | ExternalImportMedicineRecord
+  | ExternalImportBathRecord
+  | ExternalImportMilestoneRecord;
 
 export interface ExternalImportFeedRecord {
-  readonly targetType: 'feed';
+  readonly targetType: "feed";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly time: string;
-  readonly type: 'BREAST' | 'BOTTLE' | 'SOLIDS';
+  readonly type: "BREAST" | "BOTTLE" | "SOLIDS";
   readonly startTime?: string;
   readonly endTime?: string;
   readonly feedDuration?: number;
-  readonly side?: 'LEFT' | 'RIGHT';
+  readonly side?: "LEFT" | "RIGHT";
   readonly amount?: number;
-  readonly unitAbbr?: 'ML' | 'OZ';
+  readonly unitAbbr?: "ML" | "OZ";
   readonly food?: string;
   readonly notes?: string;
-  readonly bottleType?: 'Formula' | 'Breast Milk' | 'Other';
+  readonly bottleType?: "Formula" | "Breast Milk" | "Formula/Breast" | "Other";
+  readonly breastMilkAmount?: number;
+  readonly sessionId?: string;
 }
 
 export interface ExternalImportDiaperRecord {
-  readonly targetType: 'diaper';
+  readonly targetType: "diaper";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly time: string;
-  readonly type: 'WET' | 'DIRTY' | 'BOTH' | 'DRY';
-  readonly color?: 'YELLOW' | 'BROWN' | 'GREEN' | 'BLACK';
+  readonly type: "WET" | "DIRTY" | "BOTH" | "DRY";
+  readonly color?: string;
+  readonly condition?: string;
   readonly notes?: string;
 }
 
-export type ExternalImportFeedingAmountUnit =
-  | 'ML'
-  | 'OZ'
-  | 'SKIP';
-
+export type ExternalImportFeedingAmountUnit = "ML" | "OZ" | "SKIP";
 
 export interface ExternalImportMeasurementRecord {
-  readonly targetType: 'measurement';
+  readonly targetType: "measurement";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly date: string;
-  readonly type: 'HEIGHT' | 'WEIGHT' | 'HEAD_CIRCUMFERENCE' | 'TEMPERATURE';
+  readonly type: "HEIGHT" | "WEIGHT" | "HEAD_CIRCUMFERENCE" | "TEMPERATURE";
   readonly value: number;
-  readonly unit: 'cm' | 'in' | 'kg' | 'lb' | '°C' | '°F';
+  readonly unit: "cm" | "in" | "kg" | "lb" | "°C" | "°F";
   readonly notes?: string;
 }
 
 export interface ExternalImportPumpRecord {
-  readonly targetType: 'pump';
+  readonly targetType: "pump";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly startTime: string;
-  readonly endTime: string;
-  readonly duration: number;
-  readonly totalAmount: number;
-  readonly unitAbbr: 'ML' | 'OZ';
-  readonly pumpAction: 'STORED';
+  readonly endTime?: string;
+  readonly duration?: number;
+  readonly durationSeconds?: number;
+  readonly totalAmount?: number;
+  readonly leftAmount?: number;
+  readonly rightAmount?: number;
+  readonly unitAbbr: "ML" | "OZ";
+  readonly pumpAction: "STORED" | "HISTORICAL";
   readonly notes?: string;
 }
 
 export interface ExternalImportPlayRecord {
-  readonly targetType: 'play';
+  readonly targetType: "play";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly startTime: string;
   readonly duration: number;
-  readonly type: 'TUMMY_TIME';
+  readonly type: "TUMMY_TIME";
   readonly notes?: string;
 }
 
 export interface ExternalImportMedicineRecord {
-  readonly targetType: 'medicine';
+  readonly targetType: "medicine";
   readonly source: ExternalImportSource;
   readonly sourceChildId: string;
   readonly time: string;
   readonly medicineName: string;
   readonly doseAmount: number;
-  readonly unitAbbr?: 'MG' | 'ML' | 'TAB' | 'DROP';
+  readonly unitAbbr?: "MG" | "ML" | "TAB" | "DROP";
   readonly doseMinTime?: string;
   readonly notes?: string;
 }
 
-export type ExternalImportGender = 'MALE' | 'FEMALE';
+export type ExternalImportGender = "MALE" | "FEMALE";
 
 export type ExternalImportChildDestination =
   | {
-      readonly mode: 'existing';
+      readonly mode: "existing";
       readonly targetBabyId: string;
     }
   | {
-      readonly mode: 'new';
+      readonly mode: "new";
       readonly gender: ExternalImportGender;
     };
 
@@ -209,9 +211,7 @@ export interface ExternalImportExecutionPlan {
   >[];
 }
 
-export type ExternalImportResultStatus =
-  | 'created'
-  | 'duplicate';
+export type ExternalImportResultStatus = "created" | "duplicate";
 
 export interface ExternalImportRecordResult {
   readonly providerId: string;
@@ -227,4 +227,22 @@ export interface ExternalImportExecutionResult {
   readonly duplicates: number;
   readonly records: readonly ExternalImportRecordResult[];
   readonly babyMappings: Readonly<Record<string, string>>;
+}
+
+export interface ExternalImportBathRecord {
+  readonly targetType: "bath";
+  readonly source: ExternalImportSource;
+  readonly sourceChildId: string;
+  readonly time: string;
+  readonly bathType?: string;
+  readonly durationSeconds?: number;
+  readonly notes?: string;
+}
+export interface ExternalImportMilestoneRecord {
+  readonly targetType: "milestone";
+  readonly source: ExternalImportSource;
+  readonly sourceChildId: string;
+  readonly date: string;
+  readonly title: string;
+  readonly description?: string;
 }

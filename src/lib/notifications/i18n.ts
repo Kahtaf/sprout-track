@@ -1,48 +1,34 @@
-import fs from 'fs';
-import path from 'path';
-
-/**
- * Server-side internationalization utility for push notifications
- * Loads translations from the localization files and provides translation functions
- */
+import language0 from '@/src/localization/translations/de.json';
+import language1 from '@/src/localization/translations/en.json';
+import language2 from '@/src/localization/translations/es.json';
+import language3 from '@/src/localization/translations/fr.json';
+import language4 from '@/src/localization/translations/hi.json';
+import language5 from '@/src/localization/translations/it.json';
+import language6 from '@/src/localization/translations/nb.json';
+import language7 from '@/src/localization/translations/nl.json';
+import language8 from '@/src/localization/translations/pl.json';
+import language9 from '@/src/localization/translations/pt-br.json';
+import language10 from '@/src/localization/translations/pt-pt.json';
+import language11 from '@/src/localization/translations/ro.json';
 
 type TranslationMap = Record<string, string>;
-const translationCache: Record<string, TranslationMap> = {};
+const translations: Record<string, TranslationMap> = {
+  'de': language0,
+  'en': language1,
+  'es': language2,
+  'fr': language3,
+  'hi': language4,
+  'it': language5,
+  'nb': language6,
+  'nl': language7,
+  'pl': language8,
+  'pt-br': language9,
+  'pt-pt': language10,
+  'ro': language11,
+};
 
-/**
- * Load translations for a given language
- * Falls back to English if the language file is not found
- * @param lang - Language code (e.g., 'en', 'es', 'fr')
- * @returns Translation map for the language
- */
 export function loadTranslations(lang: string): TranslationMap {
-  // Return cached translations if available
-  if (translationCache[lang]) {
-    return translationCache[lang];
-  }
-
-  const filePath = path.join(
-    process.cwd(),
-    'src/localization/translations',
-    `${lang}.json`
-  );
-
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    translationCache[lang] = JSON.parse(content);
-    return translationCache[lang];
-  } catch (error) {
-    // Fall back to English if the requested language is not found
-    if (lang !== 'en') {
-      console.warn(
-        `[i18n] Translation file not found for "${lang}", falling back to English`
-      );
-      return loadTranslations('en');
-    }
-    // If even English is not found, return empty object
-    console.error('[i18n] English translation file not found');
-    return {};
-  }
+  return translations[lang] || translations.en;
 }
 
 /**
@@ -100,16 +86,6 @@ export function formatTimeElapsed(minutes: number, lang: string): string {
   return parts.join(' ');
 }
 
-/**
- * Clear the translation cache (useful for testing or hot reloading)
- */
-export function clearTranslationCache(): void {
-  Object.keys(translationCache).forEach((key) => {
-    delete translationCache[key];
-  });
-}
-
-/**
- * Default language to use when user language preference is not available
- */
+/** Bundled translation maps are immutable; kept for API compatibility. */
+export function clearTranslationCache(): void {}
 export const DEFAULT_LANGUAGE = 'en';

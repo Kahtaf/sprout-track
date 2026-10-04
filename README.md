@@ -1,5 +1,7 @@
 # Sprout Track
 
+This personal fork adds serverless Cloudflare Workers + D1 hosting and Babycare/Nara history imports. Start with [Cloudflare deployment and migration notes](CLOUDFLARE.md); photos, document uploads and container administration are unavailable in this deployment. Original attribution and license are retained. The upstream documentation follows below.
+
 A self-hosted Next.js application for tracking baby activities, milestones, and development.
 
 ![Docker Image Size](https://img.shields.io/docker/image-size/sprouttrack/sprout-track) ![Docker Pulls](https://img.shields.io/docker/pulls/sprouttrack/sprout-track)

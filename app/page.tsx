@@ -6,6 +6,7 @@ import { FamilyResponse } from './api/types';
 import { ThemeProvider } from '@/src/context/theme';
 import ComingSoon from './home/page';
 import { useLocalization } from '@/src/context/localization';
+import { needsInitialFamilySetup } from '@/src/utils/family-setup-routing';
 import { resolveRootRedirect } from '@/src/utils/pwa-root-redirect';
 
 export default function HomePage() {
@@ -79,8 +80,7 @@ export default function HomePage() {
           
           // Check if setup is needed
           const hasCaretakers = caretakerData.success && caretakerData.data?.exists;
-          const needsSetup = familiesList.length === 0 || 
-                            (familiesList.length === 1 && familiesList[0].slug === 'my-family' && !hasCaretakers);
+          const needsSetup = needsInitialFamilySetup(familiesList, Boolean(hasCaretakers));
           
           if (needsSetup) {
             // Setup needed - redirect to login first for authentication

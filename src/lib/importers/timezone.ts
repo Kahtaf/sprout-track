@@ -1,20 +1,29 @@
-import { fromZonedTime } from 'date-fns-tz';
+import { fromZonedTime } from "date-fns-tz";
 
-const DATE_TIME_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+const DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
 
 export function externalImportLocalTimeToUtc(
   localDateTime: string,
   sourceTimezone: string,
 ): Date {
+  // Explicit offsets/UTC are authoritative (Nara epoch values). Babycare adapters
+  // remove its literal Z before calling this local-time conversion.
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      localDateTime,
+    )
+  ) {
+    const absolute = new Date(localDateTime);
+    if (Number.isNaN(absolute.getTime()))
+      throw new Error("Invalid absolute import timestamp");
+    return absolute;
+  }
   if (!DATE_TIME_PATTERN.test(localDateTime)) {
-    throw new Error(
-      `Invalid external import date-time: ${localDateTime}`,
-    );
+    throw new Error(`Invalid external import date-time: ${localDateTime}`);
   }
 
   if (!sourceTimezone.trim()) {
-    throw new Error('Source timezone is required');
+    throw new Error("Source timezone is required");
   }
 
   let result: Date;
@@ -22,24 +31,18 @@ export function externalImportLocalTimeToUtc(
   try {
     result = fromZonedTime(localDateTime, sourceTimezone);
   } catch {
-    throw new Error(
-      `Invalid source timezone: ${sourceTimezone}`,
-    );
+    throw new Error(`Invalid source timezone: ${sourceTimezone}`);
   }
 
   if (Number.isNaN(result.getTime())) {
-    throw new Error(
-      `Invalid source timezone: ${sourceTimezone}`,
-    );
+    throw new Error(`Invalid source timezone: ${sourceTimezone}`);
   }
 
   return result;
 }
 
-export function externalImportDateToUtc(
-  date: string,
-): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+export function externalImportDateToUtc(date: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}(?:\.\d{1,3})?$/.test(date)) {
     throw new Error(`Invalid external import date: ${date}`);
   }
 

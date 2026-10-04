@@ -1,4 +1,5 @@
-import { Prisma } from '@prisma/client';
+import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import {
   ExternalImportBabyRecord,
   ExternalImportExecutionConfiguration,
@@ -6,24 +7,41 @@ import {
   ExternalImportMedicineRecord,
   ExternalImportRecord,
   ExternalImportRecordResult,
-} from '@/src/types/external-import';
+} from "@/src/types/external-import";
 import {
   externalImportDateToUtc,
   externalImportLocalTimeToUtc,
-} from './timezone';
+} from "./timezone";
 import {
   externalImportProvenanceKey,
   externalImportTargetEntityType,
-} from './provenance';
-import {
-  createExternalImportExecutionPlan,
-} from './plan';
+} from "./provenance";
+import { createExternalImportExecutionPlan } from "./plan";
 
 export interface ExternalImportExecutionInput {
   readonly familyId: string;
   readonly caretakerId?: string | null;
   readonly records: readonly ExternalImportRecord[];
   readonly configuration: ExternalImportExecutionConfiguration;
+}
+
+function importTargetId(
+  familyId: string,
+  record: ExternalImportRecord,
+): string {
+  return (
+    "imp_" +
+    createHash("sha256")
+      .update(
+        JSON.stringify([
+          familyId,
+          record.source.providerId,
+          record.source.entityType,
+          record.source.recordId,
+        ]),
+      )
+      .digest("hex")
+  );
 }
 
 interface MedicineCache {
@@ -82,18 +100,13 @@ async function resolveMedicineId(
   return created.id;
 }
 
-function durationMinutes(
-  startTime: Date,
-  endTime: Date,
-): number {
+function durationMinutes(startTime: Date, endTime: Date): number {
   const duration = Math.round(
     (endTime.getTime() - startTime.getTime()) / 60000,
   );
 
   if (!Number.isFinite(duration) || duration < 0) {
-    throw new Error(
-      'External import end time must not be before start time',
-    );
+    throw new Error("External import end time must not be before start time");
   }
 
   return duration;
@@ -104,10 +117,7 @@ async function findProvenance(
   familyId: string,
   record: ExternalImportRecord,
 ) {
-  const key = externalImportProvenanceKey(
-    familyId,
-    record.source,
-  );
+  const key = externalImportProvenanceKey(familyId, record.source);
 
   return tx.externalImportRecord.findUnique({
     where: {
@@ -119,14 +129,13 @@ async function findProvenance(
 function recordResult(
   record: ExternalImportRecord,
   targetRecordId: string,
-  status: 'created' | 'duplicate',
+  status: "created" | "duplicate",
 ): ExternalImportRecordResult {
   return {
     providerId: record.source.providerId,
     sourceEntityType: record.source.entityType,
     sourceRecordId: record.source.recordId,
-    targetEntityType:
-      externalImportTargetEntityType(record),
+    targetEntityType: externalImportTargetEntityType(record),
     targetRecordId,
     status,
   };
@@ -138,15 +147,23 @@ async function createProvenance(
   record: ExternalImportRecord,
   targetRecordId: string,
 ): Promise<void> {
-  await tx.externalImportRecord.create({
-    data: {
+  await tx.externalImportRecord.upsert({
+    where: {
+      familyId_providerId_sourceEntityType_sourceRecordId:
+        externalImportProvenanceKey(familyId, record.source),
+    },
+    update: {},
+    create: {
       familyId,
       providerId: record.source.providerId,
       sourceEntityType: record.source.entityType,
       sourceRecordId: record.source.recordId,
       sourceChildId: record.source.childId,
-      targetEntityType:
-        externalImportTargetEntityType(record),
+      rawSource: record.source.rawSource,
+      reviewFlags: record.source.reviewFlags
+        ? JSON.stringify(record.source.reviewFlags)
+        : undefined,
+      targetEntityType: externalImportTargetEntityType(record),
       targetRecordId,
     },
   });
@@ -157,15 +174,15 @@ async function createActivityRecord(
   familyId: string,
   caretakerId: string | null | undefined,
   babyId: string,
-  record: Exclude<
-    ExternalImportRecord,
-    ExternalImportBabyRecord
-  >,
+  record: Exclude<ExternalImportRecord, ExternalImportBabyRecord>,
   sourceTimezone: string,
   medicineCache: MedicineCache,
 ): Promise<string> {
+  // Stable target IDs make a record whose provenance write failed safe to retry.
+  // Empty updates preserve user edits on retried/concurrent imports.
+  const id = importTargetId(familyId, record);
   switch (record.targetType) {
-    case 'sleep': {
+    case "sleep": {
       const startTime = externalImportLocalTimeToUtc(
         record.startTime,
         sourceTimezone,
@@ -175,8 +192,11 @@ async function createActivityRecord(
         sourceTimezone,
       );
 
-      const created = await tx.sleepLog.create({
-        data: {
+      const created = await tx.sleepLog.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
@@ -191,28 +211,22 @@ async function createActivityRecord(
       return created.id;
     }
 
-    case 'feed': {
-      const time = externalImportLocalTimeToUtc(
-        record.time,
-        sourceTimezone,
-      );
+    case "feed": {
+      const time = externalImportLocalTimeToUtc(record.time, sourceTimezone);
 
       const startTime = record.startTime
-        ? externalImportLocalTimeToUtc(
-            record.startTime,
-            sourceTimezone,
-          )
+        ? externalImportLocalTimeToUtc(record.startTime, sourceTimezone)
         : undefined;
 
       const endTime = record.endTime
-        ? externalImportLocalTimeToUtc(
-            record.endTime,
-            sourceTimezone,
-          )
+        ? externalImportLocalTimeToUtc(record.endTime, sourceTimezone)
         : undefined;
 
-      const created = await tx.feedLog.create({
-        data: {
+      const created = await tx.feedLog.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
@@ -227,24 +241,27 @@ async function createActivityRecord(
           food: record.food,
           notes: record.notes,
           bottleType: record.bottleType,
+          breastMilkAmount: record.breastMilkAmount,
+          sessionId: record.sessionId,
         },
       });
 
       return created.id;
     }
 
-    case 'diaper': {
-      const created = await tx.diaperLog.create({
-        data: {
+    case "diaper": {
+      const created = await tx.diaperLog.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
-          time: externalImportLocalTimeToUtc(
-            record.time,
-            sourceTimezone,
-          ),
+          time: externalImportLocalTimeToUtc(record.time, sourceTimezone),
           type: record.type,
           color: record.color,
+          condition: record.condition,
           blowout: false,
           creamApplied: false,
           notes: record.notes,
@@ -254,16 +271,16 @@ async function createActivityRecord(
       return created.id;
     }
 
-    case 'note': {
-      const created = await tx.note.create({
-        data: {
+    case "note": {
+      const created = await tx.note.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
-          time: externalImportLocalTimeToUtc(
-            record.time,
-            sourceTimezone,
-          ),
+          time: externalImportLocalTimeToUtc(record.time, sourceTimezone),
           content: record.content,
         },
       });
@@ -271,19 +288,18 @@ async function createActivityRecord(
       return created.id;
     }
 
-    case 'measurement': {
+    case "measurement": {
       const date =
-        record.type === 'TEMPERATURE'
-          ? externalImportLocalTimeToUtc(
-              record.date,
-              sourceTimezone,
-            )
-          : externalImportDateToUtc(
-              record.date.slice(0, 10),
-            );
+        record.source.providerId !== "baby-buddy" ||
+        record.type === "TEMPERATURE"
+          ? externalImportLocalTimeToUtc(record.date, sourceTimezone)
+          : externalImportDateToUtc(record.date.slice(0, 10));
 
-      const created = await tx.measurement.create({
-        data: {
+      const created = await tx.measurement.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
@@ -298,9 +314,12 @@ async function createActivityRecord(
       return created.id;
     }
 
-    case 'pump': {
-      const created = await tx.pumpLog.create({
-        data: {
+    case "pump": {
+      const created = await tx.pumpLog.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
@@ -308,12 +327,14 @@ async function createActivityRecord(
             record.startTime,
             sourceTimezone,
           ),
-          endTime: externalImportLocalTimeToUtc(
-            record.endTime,
-            sourceTimezone,
-          ),
+          endTime: record.endTime
+            ? externalImportLocalTimeToUtc(record.endTime, sourceTimezone)
+            : undefined,
           duration: record.duration,
+          durationSeconds: record.durationSeconds,
           totalAmount: record.totalAmount,
+          leftAmount: record.leftAmount,
+          rightAmount: record.rightAmount,
           unitAbbr: record.unitAbbr,
           pumpAction: record.pumpAction,
           notes: record.notes,
@@ -323,22 +344,22 @@ async function createActivityRecord(
       return created.id;
     }
 
-    case 'play': {
+    case "play": {
       const startTime = externalImportLocalTimeToUtc(
         record.startTime,
         sourceTimezone,
       );
 
-      const created = await tx.playLog.create({
-        data: {
+      const created = await tx.playLog.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
           startTime,
-          endTime: new Date(
-            startTime.getTime() +
-              record.duration * 60 * 1000,
-          ),
+          endTime: new Date(startTime.getTime() + record.duration * 60 * 1000),
           duration: record.duration,
           type: record.type,
           notes: record.notes,
@@ -348,7 +369,43 @@ async function createActivityRecord(
       return created.id;
     }
 
-    case 'medicine': {
+    case "bath": {
+      const created = await tx.bathLog.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
+          familyId,
+          caretakerId,
+          babyId,
+          time: externalImportLocalTimeToUtc(record.time, sourceTimezone),
+          bathType: record.bathType,
+          durationSeconds: record.durationSeconds,
+          soapUsed: false,
+          shampooUsed: false,
+          notes: record.notes,
+        },
+      });
+      return created.id;
+    }
+    case "milestone": {
+      const created = await tx.milestone.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
+          familyId,
+          caretakerId,
+          babyId,
+          date: externalImportLocalTimeToUtc(record.date, sourceTimezone),
+          title: record.title,
+          description: record.description,
+          category: "CUSTOM",
+        },
+      });
+      return created.id;
+    }
+    case "medicine": {
       const medicineId = await resolveMedicineId(
         tx,
         familyId,
@@ -356,16 +413,16 @@ async function createActivityRecord(
         record,
       );
 
-      const created = await tx.medicineLog.create({
-        data: {
+      const created = await tx.medicineLog.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
           familyId,
           caretakerId,
           babyId,
           medicineId,
-          time: externalImportLocalTimeToUtc(
-            record.time,
-            sourceTimezone,
-          ),
+          time: externalImportLocalTimeToUtc(record.time, sourceTimezone),
           doseAmount: record.doseAmount,
           unitAbbr: record.unitAbbr,
           notes: record.notes,
@@ -381,21 +438,13 @@ async function executeWithinTransaction(
   tx: Prisma.TransactionClient,
   input: ExternalImportExecutionInput,
 ): Promise<ExternalImportExecutionResult> {
-  const {
-    familyId,
-    caretakerId,
-    records,
-    configuration,
-  } = input;
+  const { familyId, caretakerId, records, configuration } = input;
 
   if (!familyId.trim()) {
-    throw new Error('Family ID is required');
+    throw new Error("Family ID is required");
   }
 
-  const plan = createExternalImportExecutionPlan(
-    records,
-    configuration,
-  );
+  const plan = createExternalImportExecutionPlan(records, configuration);
 
   if (plan.existingBabyIds.length > 0) {
     const existingBabies = await tx.baby.findMany({
@@ -411,12 +460,9 @@ async function executeWithinTransaction(
       },
     });
 
-    if (
-      existingBabies.length !==
-      plan.existingBabyIds.length
-    ) {
+    if (existingBabies.length !== plan.existingBabyIds.length) {
       throw new Error(
-        'One or more target babies were not found in this family',
+        "One or more target babies were not found in this family",
       );
     }
   }
@@ -427,118 +473,73 @@ async function executeWithinTransaction(
   for (const [sourceChildId, destination] of Object.entries(
     configuration.childDestinations,
   )) {
-    if (destination.mode === 'existing') {
-      babyMappings[sourceChildId] =
-        destination.targetBabyId;
+    if (destination.mode === "existing") {
+      babyMappings[sourceChildId] = destination.targetBabyId;
     }
   }
 
   for (const plannedBaby of plan.newBabies) {
     const record = plannedBaby.sourceRecord;
-    const duplicate = await findProvenance(
-      tx,
-      familyId,
-      record,
-    );
+    const duplicate = await findProvenance(tx, familyId, record);
 
     if (duplicate) {
-      babyMappings[record.source.recordId] =
-        duplicate.targetRecordId;
+      babyMappings[record.source.recordId] = duplicate.targetRecordId;
 
-      results.push(
-        recordResult(
-          record,
-          duplicate.targetRecordId,
-          'duplicate',
-        ),
-      );
+      results.push(recordResult(record, duplicate.targetRecordId, "duplicate"));
 
       continue;
     }
 
-    const created = await tx.baby.create({
-      data: {
+    const created = await tx.baby.upsert({
+      where: { id: importTargetId(familyId, record) },
+      update: {},
+      create: {
+        id: importTargetId(familyId, record),
         familyId,
         firstName: record.firstName,
         lastName: record.lastName,
-        birthDate: externalImportDateToUtc(
-          record.birthDate,
-        ),
+        birthDate: externalImportDateToUtc(record.birthDate),
         gender: plannedBaby.gender,
       },
     });
 
-    babyMappings[record.source.recordId] =
-      created.id;
+    babyMappings[record.source.recordId] = created.id;
 
-    await createProvenance(
-      tx,
-      familyId,
-      record,
-      created.id,
-    );
+    await createProvenance(tx, familyId, record, created.id);
 
-    results.push(
-      recordResult(record, created.id, 'created'),
-    );
+    results.push(recordResult(record, created.id, "created"));
   }
 
   for (const babyRecord of records.filter(
-    (
-      record,
-    ): record is ExternalImportBabyRecord =>
-      record.targetType === 'baby',
+    (record): record is ExternalImportBabyRecord =>
+      record.targetType === "baby",
   )) {
     const destination =
-      configuration.childDestinations[
-        babyRecord.source.recordId
-      ];
+      configuration.childDestinations[babyRecord.source.recordId];
 
-    if (!destination || destination.mode !== 'existing') {
+    if (!destination || destination.mode !== "existing") {
       continue;
     }
 
-    const duplicate = await findProvenance(
-      tx,
-      familyId,
-      babyRecord,
-    );
+    const duplicate = await findProvenance(tx, familyId, babyRecord);
 
     if (duplicate) {
-      if (
-        duplicate.targetRecordId !==
-        destination.targetBabyId
-      ) {
+      if (duplicate.targetRecordId !== destination.targetBabyId) {
         throw new Error(
           `Source child ${babyRecord.source.recordId} was previously mapped to another baby`,
         );
       }
 
       results.push(
-        recordResult(
-          babyRecord,
-          duplicate.targetRecordId,
-          'duplicate',
-        ),
+        recordResult(babyRecord, duplicate.targetRecordId, "duplicate"),
       );
 
       continue;
     }
 
-    await createProvenance(
-      tx,
-      familyId,
-      babyRecord,
-      destination.targetBabyId,
-    );
+    await createProvenance(tx, familyId, babyRecord, destination.targetBabyId);
 
-    results.push(
-      recordResult(
-        babyRecord,
-        destination.targetBabyId,
-        'created',
-      ),
-    );
+    results.push(recordResult(babyRecord, destination.targetBabyId, "created"));
   }
 
   const medicineCache: MedicineCache = {
@@ -555,20 +556,10 @@ async function executeWithinTransaction(
       );
     }
 
-    const duplicate = await findProvenance(
-      tx,
-      familyId,
-      record,
-    );
+    const duplicate = await findProvenance(tx, familyId, record);
 
     if (duplicate) {
-      results.push(
-        recordResult(
-          record,
-          duplicate.targetRecordId,
-          'duplicate',
-        ),
-      );
+      results.push(recordResult(record, duplicate.targetRecordId, "duplicate"));
 
       continue;
     }
@@ -583,29 +574,15 @@ async function executeWithinTransaction(
       medicineCache,
     );
 
-    await createProvenance(
-      tx,
-      familyId,
-      record,
-      targetRecordId,
-    );
+    await createProvenance(tx, familyId, record, targetRecordId);
 
-    results.push(
-      recordResult(
-        record,
-        targetRecordId,
-        'created',
-      ),
-    );
+    results.push(recordResult(record, targetRecordId, "created"));
   }
 
   return {
-    created: results.filter(
-      result => result.status === 'created',
-    ).length,
-    duplicates: results.filter(
-      result => result.status === 'duplicate',
-    ).length,
+    created: results.filter((result) => result.status === "created").length,
+    duplicates: results.filter((result) => result.status === "duplicate")
+      .length,
     records: results,
     babyMappings,
   };

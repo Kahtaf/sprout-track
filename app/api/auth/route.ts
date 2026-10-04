@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   try {
 
     // Check if the IP is locked out
-    const { locked, remainingTime } = checkIpLockout(ip);
+    const { locked, remainingTime } = await checkIpLockout(ip);
     if (locked) {
       return NextResponse.json<ApiResponse<null>>(
         {
@@ -59,12 +59,12 @@ export async function POST(req: NextRequest) {
         }
 
         // Decrypt the stored admin password and compare
-        // If adminPass is blank/empty, use default "admin" password
+        // Empty credentials disable administrator login.
         let decryptedAdminPass: string;
 
         if (!appConfig.adminPass || appConfig.adminPass.trim() === '') {
-          // Use default password if stored password is blank
-          decryptedAdminPass = 'admin';
+          // Never grant administrator access with a shared default credential.
+          return NextResponse.json({ success: false, error: 'Administrator login is not configured' }, { status: 503 });
         } else {
           // Decrypt if encrypted, otherwise use as-is
           decryptedAdminPass = isEncrypted(appConfig.adminPass)
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
           );
 
           // Reset failed attempts on successful login
-          resetFailedAttempts(ip);
+          await resetFailedAttempts(ip);
 
           // Create response with system admin token
           const response = NextResponse.json<ApiResponse<{
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
           return response;
         } else {
           // Record failed attempt for invalid admin password
-          recordFailedAttempt(ip);
+          await recordFailedAttempt(ip);
           return NextResponse.json<ApiResponse<null>>(
             {
               success: false,
@@ -332,7 +332,7 @@ export async function POST(req: NextRequest) {
           }
 
           // Reset failed attempts on successful login
-          resetFailedAttempts(ip);
+          await resetFailedAttempts(ip);
 
           // Set refresh token cookie for system caretaker
           const systemRefreshToken = createRefreshToken({
@@ -372,7 +372,7 @@ export async function POST(req: NextRequest) {
     } else if (authType === 'CARETAKER') {
       // If authType is CARETAKER, block system PIN authentication
       if (!loginId) {
-        recordFailedAttempt(ip);
+        await recordFailedAttempt(ip);
         return NextResponse.json<ApiResponse<null>>(
           {
             success: false,
@@ -401,7 +401,7 @@ export async function POST(req: NextRequest) {
 
       // Security check: If authType is CARETAKER and this is a system caretaker (loginId '00'), deny access
       if (caretaker && caretaker.loginId === '00' && authType === 'CARETAKER') {
-        recordFailedAttempt(ip);
+        await recordFailedAttempt(ip);
         return NextResponse.json<ApiResponse<null>>(
           {
             success: false,
@@ -425,7 +425,7 @@ export async function POST(req: NextRequest) {
 
         if (regularCaretakerCount > 0) {
           // Record failed attempt for security
-          recordFailedAttempt(ip);
+          await recordFailedAttempt(ip);
           return NextResponse.json<ApiResponse<null>>(
             {
               success: false,
@@ -507,7 +507,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Reset failed attempts on successful login
-        resetFailedAttempts(ip);
+        await resetFailedAttempts(ip);
 
         // Set refresh token cookie for caretaker
         const caretakerRefreshToken = createRefreshToken({
@@ -538,7 +538,7 @@ export async function POST(req: NextRequest) {
     
     // If we get here, authentication failed
     // Record the failed attempt
-    recordFailedAttempt(ip);
+    await recordFailedAttempt(ip);
 
     // Provide a more specific error message if family validation failed
     const errorMessage = targetFamily

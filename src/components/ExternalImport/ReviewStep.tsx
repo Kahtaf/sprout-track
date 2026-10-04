@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useLocalization } from '@/src/context/localization';
+import { useLocalization } from "@/src/context/localization";
 import {
   ExistingBaby,
   ExternalImportPreviewResponse,
   ExternalImportUiConfiguration,
-} from './external-import.types';
-import { findSharedChildDestinations } from './destination-utils';
+} from "./external-import.types";
+import { findSharedChildDestinations } from "./destination-utils";
 
 interface ReviewStepProps {
   readonly preview: ExternalImportPreviewResponse;
@@ -15,12 +15,12 @@ interface ReviewStepProps {
 }
 
 const unitLabels: Record<string, string> = {
-  feeding: 'Bottle feeding amount unit',
-  pumping: 'Pumping amount unit',
-  height: 'Height unit',
-  weight: 'Weight unit',
-  'head-circumference': 'Head circumference unit',
-  temperature: 'Temperature unit',
+  feeding: "Bottle feeding amount unit",
+  pumping: "Pumping amount unit",
+  height: "Height unit",
+  weight: "Weight unit",
+  "head-circumference": "Head circumference unit",
+  temperature: "Temperature unit",
 };
 
 function childLabel(
@@ -28,7 +28,7 @@ function childLabel(
   t: (key: string) => string,
 ): string {
   const name = `${child.firstName} ${child.lastName}`.trim();
-  return name || `${t('Child')} ${child.sourceId}`;
+  return name || `${t("Child")} ${child.sourceId}`;
 }
 
 export default function ReviewStep({
@@ -49,51 +49,45 @@ export default function ReviewStep({
   );
 
   const findBabyName = (babyId: string) => {
-    const baby = babies.find(
-      candidate => candidate.id === babyId,
-    );
+    const baby = babies.find((candidate) => candidate.id === babyId);
 
-    return baby
-      ? `${baby.firstName} ${baby.lastName}`
-      : babyId;
+    return baby ? `${baby.firstName} ${baby.lastName}` : babyId;
   };
 
   return (
     <div className="space-y-6">
+      {preview.preview.warnings.length > 0 && (
+        <div className="rounded border border-amber-600 p-3 text-sm text-amber-100">
+          <p>Review these source data limitations:</p>
+          <ul>
+            {preview.preview.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <section className="rounded-lg border border-slate-600 p-4">
-        <h3 className="font-medium text-slate-100">
-          {t('Ready to import')}
-        </h3>
+        <h3 className="font-medium text-slate-100">{t("Ready to import")}</h3>
 
         <p className="mt-1 text-sm text-slate-300">
           {t(
-            'This import will only add records. Existing Sprout Track records will not be modified or deleted.',
+            "This import will only add records. Existing Sprout Track records will not be modified or deleted.",
           )}
         </p>
 
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div>
-            <dt className="text-slate-400">
-              {t('Detected records')}
-            </dt>
-            <dd className="font-medium text-slate-100">
-              {detectedRows}
-            </dd>
+            <dt className="text-slate-400">{t("Detected records")}</dt>
+            <dd className="font-medium text-slate-100">{detectedRows}</dd>
           </div>
 
           <div>
-            <dt className="text-slate-400">
-              {t('Warnings')}
-            </dt>
-            <dd className="font-medium text-slate-100">
-              {warningRows}
-            </dd>
+            <dt className="text-slate-400">{t("Warnings")}</dt>
+            <dd className="font-medium text-slate-100">{warningRows}</dd>
           </div>
 
           <div className="col-span-2">
-            <dt className="text-slate-400">
-              {t('Source timezone')}
-            </dt>
+            <dt className="text-slate-400">{t("Source timezone")}</dt>
             <dd className="font-medium text-slate-100">
               {configuration.sourceTimezone}
             </dd>
@@ -102,16 +96,11 @@ export default function ReviewStep({
       </section>
 
       <section className="rounded-lg border border-slate-600 p-4">
-        <h3 className="font-medium text-slate-100">
-          {t('Child destination')}
-        </h3>
+        <h3 className="font-medium text-slate-100">{t("Child destination")}</h3>
 
         <div className="mt-3 space-y-3 text-sm">
-          {preview.details.children.map(child => {
-            const destination =
-              configuration.childDestinations[
-                child.sourceId
-              ];
+          {preview.details.children.map((child) => {
+            const destination = configuration.childDestinations[child.sourceId];
 
             return (
               <div
@@ -122,17 +111,14 @@ export default function ReviewStep({
                   {childLabel(child, t)}
                 </div>
 
-                {destination?.mode === 'existing' ? (
+                {destination?.mode === "existing" ? (
                   <div className="mt-1 text-slate-300">
-                    {t('Add records to existing baby')}:{' '}
-                    {findBabyName(
-                      destination.targetBabyId,
-                    )}
+                    {t("Add records to existing baby")}:{" "}
+                    {findBabyName(destination.targetBabyId)}
                   </div>
                 ) : (
                   <div className="mt-1 text-slate-300">
-                    {t('Add as a new baby')} —{' '}
-                    {destination?.gender}
+                    {t("Add as a new baby")} — {destination?.gender}
                   </div>
                 )}
               </div>
@@ -144,58 +130,47 @@ export default function ReviewStep({
       {sharedDestinations.length > 0 && (
         <section className="rounded-lg border border-amber-700 bg-amber-950/40 p-4">
           <h3 className="font-medium text-amber-100">
-            {t('Same destination selected for multiple children')}
+            {t("Same destination selected for multiple children")}
           </h3>
 
           <p className="mt-1 text-sm text-amber-200">
             {t(
-              'Their records will all be added to the same baby. Change the destinations if this is not intended.',
+              "Their records will all be added to the same baby. Change the destinations if this is not intended.",
             )}
           </p>
 
           <ul className="mt-3 space-y-1 text-sm text-amber-200">
-            {sharedDestinations.map(shared => (
+            {sharedDestinations.map((shared) => (
               <li key={shared.targetBabyId}>
-                {findBabyName(shared.targetBabyId)} —{' '}
-                {shared.count} {t('imported children')}
+                {findBabyName(shared.targetBabyId)} — {shared.count}{" "}
+                {t("imported children")}
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      {preview.details.unitRequirements.length >
-        0 && (
+      {preview.details.unitRequirements.length > 0 && (
         <section className="rounded-lg border border-slate-600 p-4">
-          <h3 className="font-medium text-slate-100">
-            {t('Units')}
-          </h3>
+          <h3 className="font-medium text-slate-100">{t("Units")}</h3>
 
           <dl className="mt-3 space-y-2 text-sm">
-            {preview.details.unitRequirements.map(
-              requirement => (
-                <div
-                  key={requirement.entityType}
-                  className="flex justify-between gap-4"
-                >
-                  <dt className="text-slate-300">
-                    {t(
-                      unitLabels[
-                        requirement.entityType
-                      ] ||
-                        requirement.entityType,
-                    )}
-                  </dt>
-                  <dd className="font-medium text-slate-100">
-                    {
-                      configuration.units[
-                        requirement.entityType
-                      ]
-                    }
-                  </dd>
-                </div>
-              ),
-            )}
+            {preview.details.unitRequirements.map((requirement) => (
+              <div
+                key={requirement.entityType}
+                className="flex justify-between gap-4"
+              >
+                <dt className="text-slate-300">
+                  {t(
+                    unitLabels[requirement.entityType] ||
+                      requirement.entityType,
+                  )}
+                </dt>
+                <dd className="font-medium text-slate-100">
+                  {configuration.units[requirement.entityType]}
+                </dd>
+              </div>
+            ))}
           </dl>
         </section>
       )}
@@ -203,14 +178,12 @@ export default function ReviewStep({
       {preview.warnings.length > 0 && (
         <section className="rounded-lg border border-amber-700 bg-amber-950/40 p-4">
           <h3 className="font-medium text-amber-100">
-            {t('Warnings before import')}
+            {t("Warnings before import")}
           </h3>
 
           <ul className="mt-3 space-y-1 text-sm text-amber-200">
-            {preview.warnings.map(warning => (
-              <li
-                key={`${warning.code}-${warning.entityType}`}
-              >
+            {preview.warnings.map((warning) => (
+              <li key={`${warning.code}-${warning.entityType}`}>
                 {warning.code} ({warning.affectedRows})
               </li>
             ))}

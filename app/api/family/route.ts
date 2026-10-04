@@ -1,3 +1,4 @@
+import { executeWriteBatch, updateRows, D1ConflictError } from '@/prisma/d1-batch';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import { ApiResponse, FamilyResponse } from '../types';
@@ -41,6 +42,7 @@ async function getHandler(req: NextRequest, authContext: AuthResult): Promise<Ne
       data: response,
     });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error fetching family:', error);
     return NextResponse.json({
       success: false,
@@ -108,16 +110,11 @@ async function putHandler(req: NextRequest, authContext: AuthResult): Promise<Ne
     }
 
     // Update both family and settings records in a transaction
-    const [family, settings] = await prisma.$transaction([
-      prisma.family.update({
-        where: { id: familyId },
-        data: { name, slug }
-      }),
-      prisma.settings.updateMany({
-        where: { familyId: familyId },
-        data: { familyName: name }
-      })
+    await executeWriteBatch([
+      updateRows('Family', { name, slug }, '"id" = ?', [familyId]),
+      updateRows('Settings', { familyName: name }, '"familyId" = ?', [familyId]),
     ]);
+    const family = await prisma.family.findUniqueOrThrow({ where: { id: familyId } });
 
     const response: FamilyResponse = {
       id: family.id,
@@ -133,6 +130,7 @@ async function putHandler(req: NextRequest, authContext: AuthResult): Promise<Ne
       data: response,
     });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error updating family:', error);
     return NextResponse.json({
       success: false,

@@ -669,6 +669,7 @@ model PumpLog {
   startTime   DateTime
   endTime     DateTime?
   duration    Int? // Duration in minutes
+  durationSeconds Int? // Exact source duration when finer than minutes
   leftAmount  Float? // Amount in specified unit
   rightAmount Float? // Amount in specified unit
   totalAmount Float? // Total amount pumped
@@ -760,6 +761,7 @@ model PlayLog {
 model BathLog {
   id          String    @id @default(uuid())
   time        DateTime // Single time when the bath occurred
+  durationSeconds Int? // Exact imported bath duration
   bathType    String? // e.g. "Full Bath", "Sponge Bath", "Wipe Down", or custom value
   soapUsed    Boolean   @default(true)
   shampooUsed Boolean   @default(true)
@@ -1780,6 +1782,8 @@ model ExternalImportRecord {
   sourceChildId    String?
   targetEntityType String
   targetRecordId   String
+  rawSource        String? // Original source row/document JSON; retain unmodeled fields
+  reviewFlags      String? // JSON array of importer warnings, such as uncertain units
   importedAt       DateTime @default(now())
 
   family   Family @relation(fields: [familyId], references: [id], onDelete: Cascade)

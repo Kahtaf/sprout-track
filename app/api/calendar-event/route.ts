@@ -1,3 +1,4 @@
+import { executeWriteBatch, updateRows, deleteRows, insertRow, D1ConflictError } from '@/prisma/d1-batch';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import { ApiResponse } from '../types';
@@ -278,6 +279,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error fetching calendar events:', error);
     return NextResponse.json<ApiResponse<CalendarEventResponse[]>>(
       {
@@ -432,6 +434,7 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
       data: response,
     }, { status: 201 });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error creating calendar event:', error);
     return NextResponse.json<ApiResponse<null>>(
       {
@@ -505,80 +508,34 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
     const endTimeUTC = body.endTime ? toUTC(body.endTime) : undefined;
     const recurrenceEndUTC = body.recurrenceEnd ? toUTC(body.recurrenceEnd) : undefined;
     
-    // Update event in a transaction to handle relationships
-    const updatedEvent = await prisma.$transaction(async (tx) => {
-      // Delete existing relationships
-      await tx.babyEvent.deleteMany({ where: { eventId: id } });
-      await tx.caretakerEvent.deleteMany({ where: { eventId: id } });
-      await tx.contactEvent.deleteMany({ where: { eventId: id } });
-      
-      // Update event
-      const updated = await tx.calendarEvent.update({
-        where: { id },
-        data: {
-          title: body.title,
-          description: body.description || null,
-          startTime: startTimeUTC,
-          endTime: endTimeUTC || null,
-          allDay: body.allDay,
-          type: body.type,
-          location: body.location || null,
-          color: body.color || null,
-          recurring: body.recurring,
-          recurrencePattern: body.recurrencePattern || null,
-          recurrenceEnd: recurrenceEndUTC || null,
-          customRecurrence: body.customRecurrence || null,
-          reminderTime: body.reminderTime || null,
-          familyId: userFamilyId || existingEvent.familyId, // Preserve existing familyId if not provided
-          
-          // Create new relationships
-          babies: body.babyIds ? {
-            deleteMany: {},
-            create: body.babyIds.map(babyId => ({ babyId })),
-          } : undefined,
-          caretakers: body.caretakerIds ? {
-            deleteMany: {},
-            create: body.caretakerIds.map(caretakerId => ({ caretakerId })),
-          } : undefined,
-          contacts: body.contactIds ? {
-            deleteMany: {},
-            create: body.contactIds.map(contactId => ({ contactId })),
-          } : undefined,
-        },
-        include: {
-          babies: {
-            include: {
-              baby: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                },
-              },
-            },
-          },
-          caretakers: {
-            include: {
-              caretaker: {
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
-                },
-              },
-            },
-          },
-          contacts: {
-            include: {
-              contact: true,
-            },
-          },
-        },
-      });
-      
-      return updated;
+    // Replace event relationships atomically without Prisma interactive transactions.
+    const plans = [
+      deleteRows('BabyEvent', '"eventId" = ?', [id]),
+      deleteRows('CaretakerEvent', '"eventId" = ?', [id]),
+      deleteRows('ContactEvent', '"eventId" = ?', [id]),
+      updateRows('CalendarEvent', {
+        title: body.title, description: body.description || null,
+        startTime: startTimeUTC, endTime: endTimeUTC || null,
+        allDay: body.allDay, type: body.type, location: body.location || null,
+        color: body.color || null, recurring: body.recurring,
+        recurrencePattern: body.recurrencePattern || null,
+        recurrenceEnd: recurrenceEndUTC || null, customRecurrence: body.customRecurrence || null,
+        reminderTime: body.reminderTime || null, familyId: userFamilyId || existingEvent.familyId,
+      }, '"id" = ? AND "familyId" = ?', [id, userFamilyId]),
+      ...(body.babyIds || []).map(babyId => insertRow('BabyEvent', { babyId, eventId: id })),
+      ...(body.caretakerIds || []).map(caretakerId => insertRow('CaretakerEvent', { caretakerId, eventId: id })),
+      ...(body.contactIds || []).map(contactId => insertRow('ContactEvent', { contactId, eventId: id })),
+    ];
+    await executeWriteBatch(plans);
+    const updatedEvent = await prisma.calendarEvent.findUniqueOrThrow({
+      where: { id },
+      include: {
+        babies: { include: { baby: { select: { id: true, firstName: true, lastName: true } } } },
+        caretakers: { include: { caretaker: { select: { id: true, name: true, type: true } } } },
+        contacts: { include: { contact: true } },
+      },
     });
-    
+
     // Format dates and transform related entities
     const response: CalendarEventResponse = {
       ...updatedEvent,
@@ -599,6 +556,7 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error updating calendar event:', error);
     return NextResponse.json<ApiResponse<null>>(
       {
@@ -648,6 +606,7 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
     
     return NextResponse.json<ApiResponse<null>>({ success: true });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error deleting calendar event:', error);
     return NextResponse.json<ApiResponse<null>>(
       {

@@ -328,7 +328,8 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             backupRestoreStyles.button.restore,
             importOnly && "w-full"
           )}
-          disabled={isLoading || isSaving || state.isRestoring || state.isMigrating}
+          disabled={true}
+          title="Full database restore is managed through Cloudflare D1 administration."
         >
           <Upload className={backupRestoreStyles.icon} aria-hidden="true" />
           {state.isRestoring ? 'Importing...' : state.isMigrating ? 'Migrating...' : importOnly ? 'Import Database' : 'Restore Database'}
@@ -337,9 +338,9 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
       
       {/* Help Text */}
       <p className={backupRestoreStyles.helpText}>
-        {importOnly 
-          ? 'Import data from a previous Sprout Track database backup to start with existing family data, or skip this step to create a new family from scratch.'
-          : 'Create backups of your database or restore from a previous backup. Restoring will replace all current data and run necessary migrations.'
+        {importOnly
+          ? 'Skip this database-file step to create your family. Import Babycare and Nara activity history afterward using External Import.'
+          : 'Download a private JSON backup of all application records. Full database restore is managed through Cloudflare D1 administration; activity CSV imports are available separately.'
         }
       </p>
 

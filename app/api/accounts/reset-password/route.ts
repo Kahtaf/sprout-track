@@ -40,7 +40,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<R
     const ip = getClientIP(req);
     
     // Check if the IP is locked out
-    const { locked, remainingTime } = checkIpLockout(ip);
+    const { locked, remainingTime } = await checkIpLockout(ip);
     if (locked) {
       return NextResponse.json<ApiResponse<ResetPasswordResponse>>(
         {
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<R
 
     // Validate input
     if (!token || !password) {
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       return NextResponse.json<ApiResponse<ResetPasswordResponse>>(
         {
           success: false,
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<R
     }
 
     if (!isValidPassword(password)) {
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       return NextResponse.json<ApiResponse<ResetPasswordResponse>>(
         {
           success: false,
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<R
     });
 
     if (!account) {
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       return NextResponse.json<ApiResponse<ResetPasswordResponse>>(
         {
           success: false,
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<R
 
     // Check if the reset token has expired
     if (!account.passwordResetExpires || account.passwordResetExpires < new Date()) {
-      recordFailedAttempt(ip);
+      await recordFailedAttempt(ip);
       return NextResponse.json<ApiResponse<ResetPasswordResponse>>(
         {
           success: false,
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse<R
     });
 
     // Reset failed attempts on successful password reset
-    resetFailedAttempts(ip);
+    await resetFailedAttempts(ip);
 
     console.log(`Password reset successful for account: ${account.email}`);
 

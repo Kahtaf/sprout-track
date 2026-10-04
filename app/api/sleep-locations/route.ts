@@ -1,3 +1,4 @@
+import { executeWriteBatch, updateRows, settingsGuard, D1ConflictError } from '@/prisma/d1-batch';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import {
@@ -42,34 +43,11 @@ const findSettings = (client: typeof prisma | any, familyId: string) =>
     orderBy: { updatedAt: 'desc' },
   });
 
-/** Persists the settings shape, creating the family's Settings row if needed. */
-async function writeLocationSettings(
-  tx: any,
-  familyId: string,
-  settings: SettingsRecord,
-  shape: SleepLocationSettingsShape,
-) {
-  const sleepLocationSettings = JSON.stringify(shape);
-  if (settings) {
-    await tx.settings.update({
-      where: { id: settings.id },
-      data: { sleepLocationSettings } as any,
-    });
-  } else {
-    await tx.settings.create({
-      data: {
-        familyId,
-        familyName: 'My Family',
-        securityPin: '111222',
-        defaultBottleUnit: 'OZ',
-        defaultSolidsUnit: 'TBSP',
-        defaultHeightUnit: 'IN',
-        defaultWeightUnit: 'LB',
-        defaultTempUnit: 'F',
-        sleepLocationSettings,
-      } as any,
-    });
-  }
+/** Missing owner settings must be repaired through secure family setup. */
+function locationPlans(settings: any, shape: SleepLocationSettingsShape) {
+  if (!settings) throw new Error('Family settings are missing');
+  return [settingsGuard(settings), updateRows('Settings',
+    { sleepLocationSettings: JSON.stringify(shape) }, '"id" = ?', [settings.id])];
 }
 
 async function getSummaries(familyId: string): Promise<SleepLocationSummary[]> {
@@ -101,6 +79,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult): Promise<Nex
 
     return NextResponse.json({ success: true, data: await getSummaries(userFamilyId) });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error retrieving sleep locations:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to load sleep locations' },
@@ -132,15 +111,14 @@ async function handlePost(req: NextRequest, authContext: AuthResult): Promise<Ne
     }
     const { name } = validation;
 
-    await prisma.$transaction(async (tx) => {
-      const settings = await findSettings(tx, userFamilyId);
-      const shape = parseLocationSettings(settings);
-      shape.customLocations = [...shape.customLocations, name];
-      await writeLocationSettings(tx, userFamilyId, settings, shape);
-    });
+    const settings = await findSettings(prisma, userFamilyId);
+    const shape = parseLocationSettings(settings);
+    shape.customLocations = [...shape.customLocations, name];
+    await executeWriteBatch(locationPlans(settings, shape));
 
     return NextResponse.json({ success: true, data: { name } });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error adding sleep location:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to update sleep locations' },
@@ -171,28 +149,16 @@ async function handlePut(req: NextRequest, authContext: AuthResult): Promise<Nex
     }
     const { from, to } = validation;
 
-    const updatedCount = await prisma.$transaction(async (tx) => {
-      const updated = await tx.sleepLog.updateMany({
-        where: { familyId: userFamilyId, location: from },
-        data: { location: to },
-      });
-
-      // Re-read settings inside the transaction so a concurrent hide/show
-      // save from an open SleepForm can't be clobbered with stale data.
-      const settings = await findSettings(tx, userFamilyId);
-      if (settings) {
-        const shape = parseLocationSettings(settings);
-        const next = updateSettingsAfterRename(shape, from, to);
-        if (JSON.stringify(next) !== JSON.stringify(shape)) {
-          await writeLocationSettings(tx, userFamilyId, settings, next);
-        }
-      }
-
-      return updated.count;
-    });
+    const settings = await findSettings(prisma, userFamilyId);
+    const shape = parseLocationSettings(settings);
+    const plans = locationPlans(settings, updateSettingsAfterRename(shape, from, to));
+    plans.push(updateRows('SleepLog', { location: to }, '"familyId" = ? AND "location" = ?', [userFamilyId, from]));
+    const results = await executeWriteBatch(plans);
+    const updatedCount = results[results.length - 1].meta.changes;
 
     return NextResponse.json({ success: true, data: { updatedCount } });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error renaming sleep location:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to update sleep locations' },
@@ -224,26 +190,18 @@ async function handleDelete(req: NextRequest, authContext: AuthResult): Promise<
     const { name } = validation;
 
     const inUseError = 'This location is still in use. Merge it into another location instead.';
-    await prisma.$transaction(async (tx) => {
-      const inUse = await tx.sleepLog.count({
-        where: { familyId: userFamilyId, location: name, deletedAt: null },
-      });
-      if (inUse > 0) {
-        throw new Error(inUseError);
-      }
-
-      const settings = await findSettings(tx, userFamilyId);
-      if (settings) {
-        const shape = parseLocationSettings(settings);
-        const next = updateSettingsAfterDelete(shape, name);
-        if (JSON.stringify(next) !== JSON.stringify(shape)) {
-          await writeLocationSettings(tx, userFamilyId, settings, next);
-        }
-      }
-    });
+    const inUse = await prisma.sleepLog.count({ where: { familyId: userFamilyId, location: name, deletedAt: null } });
+    if (inUse > 0) throw new Error(inUseError);
+    const settings = await findSettings(prisma, userFamilyId);
+    const shape = parseLocationSettings(settings);
+    const plans = locationPlans(settings, updateSettingsAfterDelete(shape, name));
+    // The batch validates absence again so a new matching sleep log cannot race deletion.
+    plans.unshift({ sql: `SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM "SleepLog" WHERE "familyId" = ? AND "location" = ? AND "deletedAt" IS NULL) THEN 1 ELSE json('location-in-use') END`, values: [userFamilyId, name] });
+    await executeWriteBatch(plans);
 
     return NextResponse.json({ success: true, data: { removed: true } });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     if (error instanceof Error && error.message.includes('still in use')) {
       return NextResponse.json(
         { success: false, error: error.message },

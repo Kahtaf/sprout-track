@@ -103,19 +103,15 @@ async function handlePost(
       configuration.provider,
     );
 
-    const result = await prisma.$transaction(
-      tx =>
-        executeExternalImport(tx, {
-          familyId,
-          caretakerId: authContext.caretakerId,
-          records,
-          configuration: configuration.execution,
-        }),
-      {
-        maxWait: 10000,
-        timeout: 120000,
-      },
-    );
+    // D1 cannot run interactive Prisma transactions. The executor uses stable
+    // target IDs and no-op upserts so a bounded import can safely be retried
+    // after any partial failure without duplicating records or replacing edits.
+    const result = await executeExternalImport(prisma, {
+      familyId,
+      caretakerId: authContext.caretakerId,
+      records,
+      configuration: configuration.execution,
+    });
 
     return NextResponse.json<
       ApiResponse<ExternalImportExecutionResult>

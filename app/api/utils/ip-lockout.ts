@@ -1,92 +1,37 @@
-// In-memory store for tracking failed login attempts
-// In a production environment, this should be replaced with a persistent store like Redis
-interface FailedAttempt {
-  count: number;
-  lockoutUntil: number | null;
-}
+import { createHash } from 'node:crypto';
+import { getDatabaseBinding } from '@/src/lib/cloudflare/runtime';
 
-const failedAttempts: Record<string, FailedAttempt> = {};
-
-// Maximum number of failed attempts before lockout
+const WINDOW = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
-// Lockout duration in milliseconds (5 minutes)
-const LOCKOUT_DURATION = 5 * 60 * 1000;
+const keyFor = (ip: string) => 'login:' + createHash('sha256').update(ip).digest('hex');
 
-/**
- * Check if an IP is currently locked out
- * @param ip The IP address to check
- * @returns Object containing lockout status and time remaining
- */
-export function checkIpLockout(ip: string): { locked: boolean; remainingTime: number } {
-  const attempt = failedAttempts[ip];
-  
-  // If no record exists for this IP, it's not locked
-  if (!attempt) {
-    return { locked: false, remainingTime: 0 };
-  }
-  
-  // If there's a lockout time and it's in the future, the IP is locked
-  if (attempt.lockoutUntil && attempt.lockoutUntil > Date.now()) {
-    return { 
-      locked: true, 
-      remainingTime: attempt.lockoutUntil - Date.now() 
-    };
-  }
-  
-  // If the lockout time has passed, reset the record and return not locked
-  if (attempt.lockoutUntil && attempt.lockoutUntil <= Date.now()) {
-    attempt.count = 0;
-    attempt.lockoutUntil = null;
-    return { locked: false, remainingTime: 0 };
-  }
-  
-  // If there's no lockout time but there are failed attempts, return not locked
-  return { locked: false, remainingTime: 0 };
+// D1 is shared by isolates. No client can reset the counter through a public route.
+export async function checkIpLockout(ip: string) {
+  const row = await getDatabaseBinding().prepare('SELECT count, expiresAt FROM AuthSecurity WHERE key = ?').bind(keyFor(ip)).first<{count: number; expiresAt: number}>();
+  const remainingTime = row ? Math.max(0, row.expiresAt - Date.now()) : 0;
+  return { locked: !!row && row.count >= MAX_ATTEMPTS && remainingTime > 0, remainingTime: row && row.count >= MAX_ATTEMPTS ? remainingTime : 0 };
 }
 
-/**
- * Record a failed login attempt for an IP
- * @param ip The IP address to record the failed attempt for
- * @returns Object containing lockout status and time remaining
- */
-export function recordFailedAttempt(ip: string): { locked: boolean; remainingTime: number } {
-  // Get or create the record for this IP
-  const attempt = failedAttempts[ip] || { count: 0, lockoutUntil: null };
-  
-  // If the IP is already locked, return the current status
-  if (attempt.lockoutUntil && attempt.lockoutUntil > Date.now()) {
-    return { 
-      locked: true, 
-      remainingTime: attempt.lockoutUntil - Date.now() 
-    };
-  }
-  
-  // Increment the failed attempt count
-  attempt.count += 1;
-  
-  // If the count exceeds the maximum, lock the IP
-  if (attempt.count >= MAX_ATTEMPTS) {
-    attempt.lockoutUntil = Date.now() + LOCKOUT_DURATION;
-    attempt.count = 0; // Reset count for next window
-  }
-  
-  // Update the record
-  failedAttempts[ip] = attempt;
-  
-  // Return the current status
-  return { 
-    locked: attempt.lockoutUntil !== null && attempt.lockoutUntil > Date.now(), 
-    remainingTime: attempt.lockoutUntil ? attempt.lockoutUntil - Date.now() : 0 
-  };
+export async function recordFailedAttempt(ip: string) {
+  const now = Date.now();
+  await getDatabaseBinding().prepare(`INSERT INTO AuthSecurity (key, count, expiresAt) VALUES (?, 1, ?)
+    ON CONFLICT(key) DO UPDATE SET count = CASE WHEN expiresAt <= ? THEN 1 ELSE count + 1 END,
+    expiresAt = CASE WHEN expiresAt <= ? THEN ? ELSE expiresAt END`).bind(keyFor(ip), now + WINDOW, now, now, now + WINDOW).run();
+  return checkIpLockout(ip);
 }
 
-/**
- * Reset failed attempts for an IP after successful login
- * @param ip The IP address to reset
- */
-export function resetFailedAttempts(ip: string): void {
-  if (failedAttempts[ip]) {
-    failedAttempts[ip].count = 0;
-    failedAttempts[ip].lockoutUntil = null;
-  }
+export async function resetFailedAttempts(ip: string) {
+  await getDatabaseBinding().prepare('DELETE FROM AuthSecurity WHERE key = ?').bind(keyFor(ip)).run();
+}
+
+export async function isTokenRevoked(token: string) {
+  const key = 'token:' + createHash('sha256').update(token).digest('hex');
+  const row = await getDatabaseBinding().prepare('SELECT expiresAt FROM AuthSecurity WHERE key = ?').bind(key).first<{expiresAt: number}>();
+  return !!row && row.expiresAt > Date.now();
+}
+
+export async function revokeToken(token: string, expiresAt: number) {
+  const key = 'token:' + createHash('sha256').update(token).digest('hex');
+  await getDatabaseBinding().prepare('INSERT OR REPLACE INTO AuthSecurity (key, count, expiresAt) VALUES (?, 0, ?)').bind(key, expiresAt).run();
+  await getDatabaseBinding().prepare('DELETE FROM AuthSecurity WHERE expiresAt <= ?').bind(Date.now()).run();
 }

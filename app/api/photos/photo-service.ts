@@ -11,14 +11,13 @@ export function photoSubdir(familyId: string): string {
 }
 
 export async function isPhotosEnabled(): Promise<boolean> {
-  const config = await prisma.appConfig.findFirst({ select: { enablePhotos: true } });
-  return config?.enablePhotos ?? false;
+  return false;
 }
 
 export function photosDisabledResponse(): NextResponse {
   return NextResponse.json<ApiResponse<null>>(
-    { success: false, error: 'Photos feature is not enabled' },
-    { status: 403 }
+    { success: false, error: 'Photo storage is unavailable in this deployment.' },
+    { status: 501 }
   );
 }
 

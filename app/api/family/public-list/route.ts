@@ -3,9 +3,9 @@ import prisma from '../../db';
 import { ApiResponse, FamilyResponse } from '../../types';
 
 // Only the fields the family-selection UI actually consumes (id for React keys, name
-// and slug for display/navigation). This endpoint is unauthenticated, so it must not
+// and slug for display/navigation, setupComplete for initial navigation). This endpoint is unauthenticated, so it must not
 // expose anything beyond what the picker needs.
-type PublicFamily = Pick<FamilyResponse, 'id' | 'name' | 'slug'>;
+type PublicFamily = Pick<FamilyResponse, 'id' | 'name' | 'slug'> & { setupComplete: boolean };
 
 // This endpoint doesn't require authentication as it's used for the initial family selection.
 // In SaaS mode it is disabled: it would expose every tenant's family name and slug across the
@@ -26,12 +26,13 @@ export async function GET(req: NextRequest): Promise<NextResponse<ApiResponse<Pu
         id: true,
         name: true,
         slug: true,
+        setupStage: true,
       },
     });
 
     return NextResponse.json({
       success: true,
-      data: families,
+      data: families.map(({ id, name, slug, setupStage }) => ({ id, name, slug, setupComplete: setupStage >= 3 })),
     });
   } catch (error) {
     console.error('Error fetching families:', error);

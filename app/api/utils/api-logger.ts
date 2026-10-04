@@ -1,6 +1,4 @@
 import { NextRequest } from 'next/server';
-import logPrisma from '../../../prisma/log-db';
-
 export interface ApiLogEntry {
   method: string;
   path: string;
@@ -21,31 +19,20 @@ export async function logApiCall(entry: ApiLogEntry): Promise<void> {
     return;
   }
 
-  try {
-    await logPrisma.apiLog.create({
-      data: {
-        method: entry.method,
-        path: entry.path,
-        status: entry.status ?? null,
-        durationMs: entry.durationMs ?? null,
-        ip: entry.ip ?? null,
-        userAgent: entry.userAgent ?? null,
-        caretakerId: entry.caretakerId ?? null,
-        familyId: entry.familyId ?? null,
-        error: entry.error ?? null,
-        requestBody: entry.requestBody ? JSON.stringify(entry.requestBody) : null,
-        responseBody: entry.responseBody ? JSON.stringify(entry.responseBody) : null,
-      },
-    });
-  } catch (error) {
-    // Don't let logging errors break the API
-    console.error('Failed to write API log:', error);
-  }
+  // Cloudflare observability handles metadata; never persist infant history,
+  // credentials, identifiers, request bodies or response bodies in API logs.
+  console.log(JSON.stringify({
+    event: 'api_request',
+    method: entry.method,
+    path: entry.path.split('?')[0],
+    status: entry.status,
+    durationMs: entry.durationMs,
+  }));
 }
 
 export function getClientInfo(req: NextRequest) {
   return {
-    ip: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown',
+    ip: req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown',
     userAgent: req.headers.get('user-agent') || 'unknown',
   };
 }

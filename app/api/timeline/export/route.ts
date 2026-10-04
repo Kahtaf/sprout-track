@@ -6,19 +6,7 @@ import { toUTC, formatForResponse } from '../../utils/timezone';
 import { objectArrayToCsv } from '../../utils/csv-export';
 import { legacyOzToLb } from '@/src/utils/weightUnits';
 import * as ExcelJS from 'exceljs';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-
-// Load translations for a given language code
-function loadTranslations(lang: string): Record<string, string> {
-  try {
-    const filePath = join(process.cwd(), 'src', 'localization', 'translations', `${lang}.json`);
-    const content = readFileSync(filePath, 'utf-8');
-    return JSON.parse(content);
-  } catch {
-    return {};
-  }
-}
+import { loadTranslations } from '@/src/lib/notifications/i18n';
 
 function t(key: string, translations: Record<string, string>): string {
   return translations[key] || key;

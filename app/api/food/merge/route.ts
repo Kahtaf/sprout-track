@@ -1,3 +1,4 @@
+import { executeWriteBatch, updateRows, snapshotGuard, D1ConflictError } from '@/prisma/d1-batch';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../../db';
 import { ApiResponse, FoodMergeResult } from '../../types';
@@ -147,38 +148,35 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
       );
     }
 
-    const movedCount = await prisma.$transaction(async (tx) => {
-      // Single pass: FK remap and foods JSON rewrite happen together, so every
-      // affected log is visited — and counted — exactly once.
-      const candidates = await tx.foodLog.findMany({
-        where: buildFoodMergeCandidateWhere(userFamilyId, source.id),
-        select: { id: true, foodId: true, foods: true, hadReaction: true, reactionDescription: true },
-      });
-
-      const updates = planFoodMergeUpdates(candidates, source.id, target.id);
-      for (const batch of groupFoodMergeUpdates(updates)) {
-        await tx.foodLog.updateMany({
-          where: { id: { in: batch.ids }, familyId: userFamilyId },
-          data: batch.data,
-        });
-      }
-
-      await tx.food.update({
-        where: { id: target.id },
-        data: { commonAllergen: source.commonAllergen || target.commonAllergen },
-      });
-      await tx.food.update({
-        where: { id: source.id },
-        data: { deletedAt: new Date() },
-      });
-      return updates.length;
-    }, { timeout: 15000 });
+    const candidates = await prisma.foodLog.findMany({
+      where: buildFoodMergeCandidateWhere(userFamilyId, source.id),
+      select: { id: true, foodId: true, foods: true, hadReaction: true, reactionDescription: true },
+    });
+    const updates = planFoodMergeUpdates(candidates, source.id, target.id);
+    const plans = candidates.map(row => snapshotGuard('FoodLog',
+      '"id" = ? AND "familyId" = ? AND "foodId" IS ? AND "foods" IS ? AND "hadReaction" = ? AND "reactionDescription" IS ?',
+      [row.id, userFamilyId, row.foodId, row.foods, row.hadReaction, row.reactionDescription]));
+    plans.unshift(
+      snapshotGuard('Food', '"id" = ? AND "familyId" = ? AND "deletedAt" IS NULL AND "commonAllergen" = ?', [source.id, userFamilyId, source.commonAllergen]),
+      snapshotGuard('Food', '"id" = ? AND "familyId" = ? AND "deletedAt" IS NULL AND "commonAllergen" = ?', [target.id, userFamilyId, target.commonAllergen]),
+      { sql: `SELECT CASE WHEN (SELECT COUNT(*) FROM "FoodLog" WHERE "familyId" = ? AND ("foodId" = ? OR instr("foods", ?) > 0)) = ? THEN 1 ELSE json('concurrent-food-log-change') END`, values: [userFamilyId, source.id, source.id, candidates.length] },
+    );
+    for (const batch of groupFoodMergeUpdates(updates)) {
+      plans.push(updateRows('FoodLog', batch.data,
+        `"id" IN (${batch.ids.map(() => '?').join(', ')}) AND "familyId" = ?`,
+        [...batch.ids, userFamilyId]));
+    }
+    plans.push(updateRows('Food', { commonAllergen: source.commonAllergen || target.commonAllergen }, '"id" = ? AND "familyId" = ?', [target.id, userFamilyId]));
+    plans.push(updateRows('Food', { deletedAt: new Date() }, '"id" = ? AND "familyId" = ?', [source.id, userFamilyId]));
+    await executeWriteBatch(plans);
+    const movedCount = updates.length;
 
     return NextResponse.json<ApiResponse<FoodMergeResult>>({
       success: true,
       data: { movedCount },
     });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error merging foods:', error);
     return NextResponse.json<ApiResponse<null>>(
       {

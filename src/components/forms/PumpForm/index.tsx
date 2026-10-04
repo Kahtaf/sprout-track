@@ -58,7 +58,7 @@ export default function PumpForm({
   const [adjustNotes, setAdjustNotes] = useState('');
 
   // Pump action state
-  const [pumpAction, setPumpAction] = useState<'STORED' | 'FED' | 'DISCARDED'>('STORED');
+  const [pumpAction, setPumpAction] = useState<'STORED' | 'FED' | 'DISCARDED' | 'HISTORICAL'>('STORED');
   const [selectedStartDateTime, setSelectedStartDateTime] = useState<Date>(() => {
     try {
       // Initialize with current time - 15 minutes as default (start time is in the past)
@@ -737,6 +737,7 @@ export default function PumpForm({
                 <div className="space-y-2">
                   <Label>{t('Action')}</Label>
                   <div className="flex space-x-2">
+                    {pumpAction === 'HISTORICAL' && <p className="text-sm text-slate-400">Historical entry — excluded from current milk inventory. Selecting an action will include it.</p>}
                     <Button type="button" variant={pumpAction === 'STORED' ? 'default' : 'outline'} className="flex-1" onClick={() => setPumpAction('STORED')} disabled={loading}>
                       {t('Stored')}
                     </Button>

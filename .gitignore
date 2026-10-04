@@ -62,3 +62,16 @@ temp-development-docs/
 docs/
 
 test-results/
+
+# Cloudflare local state, secrets, and private imports
+.dev.vars*
+.wrangler/
+.open-next/
+private/
+*.local.sql
+dist/
+__pycache__/
+*.pyc
+/dist/
+.vinext/
+.wrangler/

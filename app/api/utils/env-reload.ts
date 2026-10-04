@@ -1,7 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-import { execSync } from 'child_process';
-
 /**
  * Parses a .env file content and returns key-value pairs
  * Handles comments, empty lines, quoted values, and unquoted values
@@ -70,47 +66,9 @@ export function replaceEnvVar(content: string, key: string, value: string): stri
  * Adds missing vars with correct defaults without overwriting existing values.
  * Uses the centralized ensure-env-defaults.js script (single source of truth).
  */
-export function ensureEnvDefaults(envFilePath?: string): boolean {
-  try {
-    const envPath = envFilePath || path.resolve('./.env');
-    const mode = process.env.NODE_ENV === 'production' ? 'docker' : 'local';
-    const scriptPath = path.resolve('./scripts/ensure-env-defaults.js');
-    execSync(`node ${scriptPath} ${mode} ${envPath}`, { stdio: 'inherit' });
-    return true;
-  } catch (error) {
-    console.error('Error ensuring env defaults:', error);
-    return false;
-  }
+export function ensureEnvDefaults(_envFilePath?: string): boolean {
+  return false; // Worker bindings and secrets are configured at deployment.
 }
-
-export function reloadEnvFile(envFilePath?: string): boolean {
-  try {
-    const envPath = envFilePath || path.resolve('./.env');
-
-    // Check if file exists
-    if (!fs.existsSync(envPath)) {
-      console.warn(`Environment file not found at ${envPath}, skipping reload`);
-      return false;
-    }
-
-    // Read the .env file
-    const envContent = fs.readFileSync(envPath, 'utf-8');
-
-    // Parse the file
-    const envVars = parseEnvFile(envContent);
-
-    // Update process.env with the new values
-    let reloadedCount = 0;
-    for (const [key, value] of Object.entries(envVars)) {
-      process.env[key] = value;
-      reloadedCount++;
-    }
-
-    console.log(`✓ Reloaded ${reloadedCount} environment variables from ${envPath}`);
-    return true;
-  } catch (error) {
-    console.error('Error reloading environment file:', error);
-    return false;
-  }
+export function reloadEnvFile(_envFilePath?: string): boolean {
+  return false; // Never mutate shared process.env during a request.
 }
-

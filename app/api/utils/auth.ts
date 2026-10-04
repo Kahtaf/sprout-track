@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'node:crypto';
 import { logApiCall, getClientInfo } from './api-logger';
+import { isTokenRevoked, revokeToken } from './ip-lockout';
 import { setupTokenMayTarget } from './setup-token-scope';
 
 // Secret key for JWT signing - always sourced from the environment.
@@ -44,7 +46,7 @@ export interface RefreshTokenPayload {
  */
 export function createRefreshToken(payload: Omit<RefreshTokenPayload, 'tokenType'>): string {
   return jwt.sign(
-    { ...payload, tokenType: 'refresh' },
+    { ...payload, tokenType: 'refresh', jti: randomUUID() },
     getRefreshTokenSecret(),
     { expiresIn: `${REFRESH_TOKEN_LIFE}s` }
   );
@@ -54,9 +56,10 @@ export function createRefreshToken(payload: Omit<RefreshTokenPayload, 'tokenType
  * Verifies and decodes a refresh token
  * Returns the payload if valid, null if invalid/expired
  */
-export function verifyRefreshToken(token: string): RefreshTokenPayload | null {
+export async function verifyRefreshToken(token: string): Promise<RefreshTokenPayload | null> {
   try {
-    const decoded = jwt.verify(token, getRefreshTokenSecret()) as any;
+    if (await isTokenRevoked(token)) return null;
+    const decoded = jwt.verify(token, getRefreshTokenSecret(), { algorithms: ['HS256'] }) as any;
     if (decoded.tokenType !== 'refresh') {
       return null;
     }
@@ -91,21 +94,6 @@ export function clearRefreshTokenCookie(response: NextResponse): void {
     maxAge: 0,
   });
 }
-
-// In-memory token blacklist (in a production app, this would be in Redis or similar)
-// This is a simple Map that stores invalidated tokens with their expiry time
-const tokenBlacklist = new Map<string, number>();
-
-// Clean up expired tokens from the blacklist every hour
-setInterval(() => {
-  const now = Date.now();
-  // Use Array.from to avoid TypeScript iterator issues
-  Array.from(tokenBlacklist.entries()).forEach(([token, expiry]) => {
-    if (now > expiry) {
-      tokenBlacklist.delete(token);
-    }
-  });
-}, 60 * 60 * 1000); // 1 hour
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -170,8 +158,7 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<AuthResult
       token = authHeader.substring(7); // Remove 'Bearer ' prefix
     }
 
-    // If no token in header, try to get caretakerId from cookies (backward compatibility)
-    const caretakerId = req.cookies.get('caretakerId')?.value;
+    // Identity cookies are not credentials; only a signed bearer token authenticates.
 
     // If we have a JWT token, verify it
     if (token) {
@@ -182,29 +169,19 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<AuthResult
       }
 
       // Check if token is blacklisted
-      if (tokenBlacklist.has(token)) {
+      if (await isTokenRevoked(token)) {
         return { authenticated: false, error: 'Token has been invalidated' };
       }
 
       try {
         // Verify and decode the token
-        const decoded = jwt.verify(token, getJwtSecret()) as any;
+        const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as any;
         
         // Handle setup authentication tokens
-        if (decoded.isSetupAuth && decoded.setupToken) {
-          return {
-            authenticated: true,
-            caretakerId: null,
-            caretakerType: 'Setup',
-            caretakerRole: 'ADMIN', // Setup auth tokens have admin privileges for family creation
-            familyId: null,
-            familySlug: null,
-            isSysAdmin: false,
-            isSetupAuth: true,
-            setupToken: decoded.setupToken,
-          };
+        if (decoded.isSetupAuth) {
+          return { authenticated: false, error: 'Online family setup is disabled on this Cloudflare deployment' };
         }
-        
+
         // Handle account authentication tokens
         if (decoded.isAccountAuth) {
           // For account authentication, always fetch fresh family info from database
@@ -426,95 +403,6 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<AuthResult
       }
     }
     
-    // If no token but we have a caretakerId cookie, use the old method (backward compatibility)
-    if (caretakerId) {
-      // Verify caretaker exists in database
-      const caretaker = await prisma.caretaker.findFirst({
-        where: {
-          id: caretakerId,
-          deletedAt: null,
-        },
-        include: {
-          family: {
-            include: {
-              account: {
-                select: {
-                  id: true,
-                  betaparticipant: true,
-                  trialEnds: true,
-                  planType: true,
-                  planExpires: true,
-                  closed: true,
-                }
-              }
-            }
-          },
-        },
-      });
-
-      if (caretaker) {
-        // Calculate expiration status if family has an account (only in SAAS mode)
-        let isExpired = false;
-        let trialEnds: string | null = null;
-        let planExpires: string | null = null;
-        let planType: string | null = null;
-        let betaparticipant = false;
-
-        if (caretaker.family?.account) {
-          const account = caretaker.family.account;
-          const isSaasMode = process.env.DEPLOYMENT_MODE === 'saas';
-
-          // Check account closure
-          if (account.closed) {
-            return { authenticated: false, error: 'Family account is closed' };
-          }
-
-          // Store account metadata
-          betaparticipant = account.betaparticipant || false;
-          trialEnds = account.trialEnds?.toISOString() || null;
-          planExpires = account.planExpires?.toISOString() || null;
-          planType = account.planType;
-
-          // Calculate expiration status in SAAS mode for non-beta accounts
-          if (isSaasMode && !account.betaparticipant) {
-            const now = new Date();
-
-            // Check trial expiration
-            if (account.trialEnds) {
-              const trialEndDate = new Date(account.trialEnds);
-              isExpired = now > trialEndDate;
-            }
-            // Check plan expiration (if no trial)
-            else if (account.planExpires) {
-              const planEndDate = new Date(account.planExpires);
-              isExpired = now > planEndDate;
-            }
-            // No trial and no plan = expired
-            else if (!account.planType) {
-              isExpired = true;
-            }
-          }
-        }
-
-        return {
-          authenticated: true,
-          caretakerId: caretaker.id,
-          caretakerType: caretaker.type,
-          // Use type assertion for role until Prisma types are updated
-          caretakerRole: (caretaker as any).role || 'USER',
-          familyId: caretaker.familyId,
-          familySlug: caretaker.family?.slug,
-          isSysAdmin: false,
-          authType: 'CARETAKER',
-          betaparticipant,
-          isExpired,
-          trialEnds,
-          planExpires,
-          planType,
-        };
-      }
-    }
-
     return { authenticated: false, error: 'No valid authentication found' };
   } catch (error) {
     console.error('Authentication verification error:', error);
@@ -863,19 +751,19 @@ export function withAuthContext<T>(
 }
 
 /**
- * Invalidates a JWT token by adding it to the blacklist
+ * Invalidates a JWT token across Worker isolates in D1
  * @param token The JWT token to invalidate
  * @returns True if the token was successfully invalidated
  */
-export function invalidateToken(token: string): boolean {
+export async function invalidateToken(token: string): Promise<boolean> {
   try {
     // Decode the token without verification to get expiry
     const decoded = jwt.decode(token) as { exp?: number };
     
     if (decoded && decoded.exp) {
-      // Store the token in the blacklist until its original expiry time
+      // Store only the token hash until its original expiry time
       const expiryMs = decoded.exp * 1000; // Convert seconds to milliseconds
-      tokenBlacklist.set(token, expiryMs);
+      await revokeToken(token, expiryMs);
       return true;
     }
     

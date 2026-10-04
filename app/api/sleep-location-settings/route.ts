@@ -1,3 +1,4 @@
+import { executeWriteBatch, updateRows, settingsGuard, D1ConflictError } from '@/prisma/d1-batch';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import { ApiResponse, SleepLocationSettings } from '../types';
@@ -35,6 +36,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult): Promise<Nex
       return NextResponse.json({ success: true, data: defaultResult });
     }
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error retrieving sleep location settings:', error);
     return NextResponse.json({ success: true, data: { hiddenLocations: [] } });
   }
@@ -74,58 +76,24 @@ async function handlePost(req: NextRequest, authContext: AuthResult): Promise<Ne
       );
     }
 
-    // Read-modify-write inside a transaction so a concurrent save from an open
-    // SleepForm gear panel can't be clobbered with stale data — same reasoning
-    // as the $transaction in /api/sleep-locations.
-    const merged = await prisma.$transaction(async (tx) => {
-      const settings = await tx.settings.findFirst({
-        where: { familyId: userFamilyId },
-        orderBy: { updatedAt: 'desc' },
-      });
-
-      let existing: SleepLocationSettings = { hiddenLocations: [] };
-      const existingRaw = (settings as unknown as { sleepLocationSettings?: string } | null)?.sleepLocationSettings;
-      if (existingRaw) {
-        try {
-          existing = JSON.parse(existingRaw) as SleepLocationSettings;
-        } catch {
-          // keep defaults
-        }
-      }
-
-      // Only fields actually present in the request overwrite stored values, so
-      // a locationOrder-only save can't drop customLocations and vice versa.
-      const next = mergeLocationSettings(existing, { hiddenLocations, locationOrder });
-
-      if (!settings) {
-        await tx.settings.create({
-          data: {
-            familyId: userFamilyId,
-            familyName: 'My Family',
-            securityPin: '111222',
-            defaultBottleUnit: 'OZ',
-            defaultSolidsUnit: 'TBSP',
-            defaultHeightUnit: 'IN',
-            defaultWeightUnit: 'LB',
-            defaultTempUnit: 'F',
-            sleepLocationSettings: JSON.stringify(next),
-          } as any,
-        });
-      } else {
-        await tx.settings.update({
-          where: { id: settings.id },
-          data: ({ sleepLocationSettings: JSON.stringify(next) }) as any,
-        });
-      }
-
-      return next;
-    });
+    const settings = await prisma.settings.findFirst({ where: { familyId: userFamilyId }, orderBy: { updatedAt: 'desc' } });
+    if (!settings) throw new Error('Family settings are missing');
+    let existing: SleepLocationSettings = { hiddenLocations: [] };
+    if (settings.sleepLocationSettings) {
+      try { existing = JSON.parse(settings.sleepLocationSettings); } catch { /* defaults */ }
+    }
+    const merged = mergeLocationSettings(existing, { hiddenLocations, locationOrder });
+    await executeWriteBatch([
+      settingsGuard(settings),
+      updateRows('Settings', { sleepLocationSettings: JSON.stringify(merged) }, '"id" = ?', [settings.id]),
+    ]);
 
     return NextResponse.json({
       success: true,
       data: merged,
     });
   } catch (error) {
+    if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error saving sleep location settings:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to save sleep location settings' },

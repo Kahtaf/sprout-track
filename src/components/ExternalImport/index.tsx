@@ -1,21 +1,16 @@
-'use client';
+"use client";
 
-import {
-  ChangeEvent,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
-import { Loader2, Upload } from 'lucide-react';
-import { Button } from '@/src/components/ui/button';
+import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { Loader2, Upload } from "lucide-react";
+import { Button } from "@/src/components/ui/button";
 import {
   FormPage,
   FormPageContent,
   FormPageFooter,
-} from '@/src/components/ui/form-page';
-import { useLocalization } from '@/src/context/localization';
-import ConfigureStep from './ConfigureStep';
-import ReviewStep from './ReviewStep';
+} from "@/src/components/ui/form-page";
+import { useLocalization } from "@/src/context/localization";
+import ConfigureStep from "./ConfigureStep";
+import ReviewStep from "./ReviewStep";
 import {
   ExistingBaby,
   ExternalImportProps,
@@ -23,7 +18,7 @@ import {
   ExternalImportStep,
   ExternalImportUiConfiguration,
   ExternalImportCompletedResult,
-} from './external-import.types';
+} from "./external-import.types";
 
 export default function ExternalImport({
   isOpen,
@@ -32,35 +27,30 @@ export default function ExternalImport({
   const { t } = useLocalization();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [providerId, setProviderId] = useState("nara");
   const [files, setFiles] = useState<File[]>([]);
-  const [preview, setPreview] =
-    useState<ExternalImportPreviewResponse | null>(null);
-  const [isPreviewing, setIsPreviewing] =
-    useState(false);
-  const [error, setError] = useState('');
-  const [step, setStep] =
-    useState<ExternalImportStep>('select');
-  const [babies, setBabies] =
-    useState<ExistingBaby[]>([]);
-  const [isLoadingBabies, setIsLoadingBabies] =
-    useState(false);
+  const [preview, setPreview] = useState<ExternalImportPreviewResponse | null>(
+    null,
+  );
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [error, setError] = useState("");
+  const [step, setStep] = useState<ExternalImportStep>("select");
+  const [babies, setBabies] = useState<ExistingBaby[]>([]);
+  const [isLoadingBabies, setIsLoadingBabies] = useState(false);
   const [configuration, setConfiguration] =
     useState<ExternalImportUiConfiguration>({
-      sourceTimezone: 'UTC',
+      sourceTimezone: "UTC",
       childDestinations: {},
       units: {},
     });
-  const [isImporting, setIsImporting] =
-    useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [completedResult, setCompletedResult] =
     useState<ExternalImportCompletedResult | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       const detectedTimezone =
-        Intl.DateTimeFormat()
-          .resolvedOptions()
-          .timeZone || 'UTC';
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
       setConfiguration({
         sourceTimezone: detectedTimezone,
@@ -73,9 +63,9 @@ export default function ExternalImport({
 
     setFiles([]);
     setPreview(null);
-    setError('');
+    setError("");
     setIsPreviewing(false);
-    setStep('select');
+    setStep("select");
     setBabies([]);
     setIsLoadingBabies(false);
     setIsImporting(false);
@@ -83,80 +73,65 @@ export default function ExternalImport({
   }, [isOpen]);
 
   const getAuthHeaders = (): HeadersInit => {
-    const token = localStorage.getItem('authToken');
+    const token = localStorage.getItem("authToken");
 
-    return token
-      ? { Authorization: `Bearer ${token}` }
-      : {};
+    return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  const handleFilesSelected = (
-    event: ChangeEvent<HTMLInputElement>,
-  ) => {
-    const selectedFiles = Array.from(
-      event.target.files || [],
-    );
+  const handleFilesSelected = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
 
     setFiles(selectedFiles);
     setPreview(null);
-    setError('');
+    setError("");
   };
 
   const loadExistingBabies = async () => {
     setIsLoadingBabies(true);
 
     try {
-      const response = await fetch('/api/baby', {
+      const response = await fetch("/api/baby", {
         headers: getAuthHeaders(),
       });
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(
-          result.error ||
-            t('Failed to load existing babies'),
-        );
+        throw new Error(result.error || t("Failed to load existing babies"));
       }
 
       setBabies(
-        (result.data as ExistingBaby[]).filter(
-          baby => !baby.inactive,
-        ),
+        (result.data as ExistingBaby[]).filter((baby) => !baby.inactive),
       );
     } finally {
       setIsLoadingBabies(false);
     }
   };
 
-  const initialiseConfiguration = (
-    response: ExternalImportPreviewResponse,
-  ) => {
+  const initialiseConfiguration = (response: ExternalImportPreviewResponse) => {
     const childDestinations = Object.fromEntries(
-      response.details.children.map(child => [
+      response.details.children.map((child) => [
         child.sourceId,
         child.activityOnly
           ? {
-              mode: 'existing' as const,
-              targetBabyId: '',
+              mode: "existing" as const,
+              targetBabyId: "",
             }
           : {
-              mode: 'new' as const,
-              gender: '' as const,
+              mode: "new" as const,
+              gender: "" as const,
             },
       ]),
     );
 
     const units = Object.fromEntries(
-      response.details.unitRequirements.map(
-        requirement => [
-          requirement.entityType,
-          requirement.allowedUnits[0],
-        ],
-      ),
+      response.details.unitRequirements.map((requirement) => [
+        requirement.entityType,
+        requirement.allowedUnits[0],
+      ]),
     );
 
-    setConfiguration(current => ({
+    setConfiguration((current) => ({
       ...current,
       childDestinations,
       units,
@@ -168,16 +143,14 @@ export default function ExternalImport({
     pumpingUnit: configuration.units.pumping,
     heightUnit: configuration.units.height,
     weightUnit: configuration.units.weight,
-    headCircumferenceUnit:
-      configuration.units['head-circumference'],
+    headCircumferenceUnit: configuration.units["head-circumference"],
     temperatureUnit: configuration.units.temperature,
   });
 
   const buildExecutionConfiguration = () => ({
     execution: {
       sourceTimezone: configuration.sourceTimezone,
-      childDestinations:
-        configuration.childDestinations,
+      childDestinations: configuration.childDestinations,
     },
     provider: providerConfiguration(),
   });
@@ -189,47 +162,41 @@ export default function ExternalImport({
 
     try {
       setIsImporting(true);
-      setError('');
+      setError("");
 
       const formData = new FormData();
-      formData.set('providerId', 'baby-buddy');
+      formData.set("providerId", providerId);
 
-      files.forEach(file => {
-        formData.append('files', file);
+      files.forEach((file) => {
+        formData.append("files", file);
       });
 
       formData.set(
-        'configuration',
+        "configuration",
         JSON.stringify(buildExecutionConfiguration()),
       );
 
-      const response = await fetch(
-        '/api/import/external/execute',
-        {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: formData,
-        },
-      );
+      const response = await fetch("/api/import/external/execute", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: formData,
+      });
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(
-          result.error ||
-            t('Failed to execute import'),
-        );
+        throw new Error(result.error || t("Failed to execute import"));
       }
 
       setCompletedResult({
         execution: result.data,
       });
-      setStep('result');
+      setStep("result");
     } catch (importError) {
       setError(
         importError instanceof Error
           ? importError.message
-          : t('Failed to execute import'),
+          : t("Failed to execute import"),
       );
     } finally {
       setIsImporting(false);
@@ -238,67 +205,55 @@ export default function ExternalImport({
 
   const handlePreview = async () => {
     if (files.length === 0) {
-      setError(t('Select at least one CSV file'));
+      setError(t("Select at least one CSV file"));
       return;
     }
 
     try {
       setIsPreviewing(true);
-      setError('');
+      setError("");
 
       const formData = new FormData();
-      formData.set('providerId', 'baby-buddy');
+      formData.set("providerId", providerId);
 
-      files.forEach(file => {
-        formData.append('files', file);
+      files.forEach((file) => {
+        formData.append("files", file);
       });
 
-      const response = await fetch(
-        '/api/import/external/preview',
-        {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: formData,
-        },
-      );
+      const response = await fetch("/api/import/external/preview", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: formData,
+      });
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(
-          result.error ||
-            t('Failed to preview import files'),
-        );
+        throw new Error(result.error || t("Failed to preview import files"));
       }
 
-      const previewResult =
-        result.data as ExternalImportPreviewResponse;
+      const previewResult = result.data as ExternalImportPreviewResponse;
 
       setPreview(previewResult);
 
-      const hasUsableFile =
-        previewResult.preview.files.some(
-          file => file.status === 'detected',
-        );
+      const hasUsableFile = previewResult.preview.files.some(
+        (file) => file.status === "detected",
+      );
 
       if (!hasUsableFile) {
-        setError(
-          t(
-            'None of the uploaded files match a supported Baby Buddy export',
-          ),
-        );
+        setError(t("None of the uploaded files match the selected app export"));
         return;
       }
 
       initialiseConfiguration(previewResult);
       await loadExistingBabies();
-      setStep('configure');
+      setStep("configure");
     } catch (previewError) {
       setPreview(null);
       setError(
         previewError instanceof Error
           ? previewError.message
-          : t('Failed to preview import files'),
+          : t("Failed to preview import files"),
       );
     } finally {
       setIsPreviewing(false);
@@ -309,124 +264,132 @@ export default function ExternalImport({
     <FormPage
       isOpen={isOpen}
       onClose={onClose}
-      title={t('Import from another platform')}
+      title={t("Import from another platform")}
       description={t(
-        'Import historical data without replacing existing Sprout Track data',
+        "Import historical data without replacing existing Sprout Track data",
       )}
     >
       <FormPageContent>
-        {step === 'select' && (
+        {step === "select" && (
           <div className="space-y-6">
-          {isPreviewing && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="flex items-center gap-3 rounded-lg border border-teal-600 bg-teal-950/40 p-4 text-teal-100"
-            >
-              <Loader2
-                className="h-5 w-5 shrink-0 animate-spin"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="font-medium text-slate-100">
-                  {t('Analysing import files...')}
-                </p>
-                <p className="text-sm text-teal-200">
-                  {t(
-                    'Detecting file types, records, children, units and warnings',
-                  )}
-                </p>
+            {isPreviewing && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-3 rounded-lg border border-teal-600 bg-teal-950/40 p-4 text-teal-100"
+              >
+                <Loader2
+                  className="h-5 w-5 shrink-0 animate-spin"
+                  aria-hidden="true"
+                />
+                <div>
+                  <p className="font-medium text-slate-100">
+                    {t("Analysing import files...")}
+                  </p>
+                  <p className="text-sm text-teal-200">
+                    {t(
+                      "Detecting file types, records, children, units and warnings",
+                    )}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
-
-          <section className="rounded-lg border border-slate-600 p-4">
-            <h3 className="font-medium text-slate-100">
-              {t('Baby Buddy')}
-            </h3>
-
-            <p className="mt-1 text-sm text-slate-300">
-              {t(
-                'Select the CSV files exported from Baby Buddy Database Admin',
-              )}
-            </p>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              multiple
-              onChange={handleFilesSelected}
-              className="sr-only"
-            />
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                fileInputRef.current?.click()
-              }
-              className="mt-4"
-            >
-              <Upload
-                className="mr-2 h-4 w-4"
-                aria-hidden="true"
-              />
-              {t('Select CSV files')}
-            </Button>
-
-            {files.length > 0 && (
-              <ul className="mt-4 space-y-1 text-sm text-slate-300">
-                {files.map(file => (
-                  <li key={`${file.name}-${file.size}`}>
-                    {file.name}
-                  </li>
-                ))}
-              </ul>
             )}
-          </section>
 
-          {error && (
-            <div
-              role="alert"
-              className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-            >
-              {error}
-            </div>
-          )}
-
-          {preview && (
             <section className="rounded-lg border border-slate-600 p-4">
-              <h3 className="font-medium text-slate-100">
-                {t('Import preview')}
-              </h3>
+              <h3 className="font-medium text-slate-100">{t("Source app")}</h3>
 
               <p className="mt-1 text-sm text-slate-300">
-                {preview.preview.totalRows}{' '}
-                {t('records detected')}
+                {t(
+                  "Select a Nara CSV, recovered Babycare JSON, or Baby Buddy CSV export",
+                )}
               </p>
 
-              <ul className="mt-4 divide-y divide-gray-200">
-                {preview.preview.files.map(file => (
-                  <li
-                    key={file.fileName}
-                    className="flex items-center justify-between py-2 text-sm"
-                  >
-                    <span>{file.fileName}</span>
-                    <span>
-                      {file.status === 'detected'
-                        ? `${file.entityType}: ${file.rowCount}`
-                        : file.error || file.status}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <select
+                aria-label="Source app"
+                value={providerId}
+                onChange={(event) => {
+                  setProviderId(event.target.value);
+                  setFiles([]);
+                  setPreview(null);
+                }}
+                className="mt-3 rounded bg-slate-800 p-2 text-slate-100"
+              >
+                <option value="nara">Nara Baby</option>
+                <option value="babycare">Babycare</option>
+                <option value="baby-buddy">Baby Buddy</option>
+              </select>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={
+                  providerId === "babycare"
+                    ? " .json,application/json"
+                    : ".csv,text/csv"
+                }
+                multiple
+                onChange={handleFilesSelected}
+                className="sr-only"
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-4"
+              >
+                <Upload className="mr-2 h-4 w-4" aria-hidden="true" />
+                {t("Select export files")}
+              </Button>
+
+              {files.length > 0 && (
+                <ul className="mt-4 space-y-1 text-sm text-slate-300">
+                  {files.map((file) => (
+                    <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                  ))}
+                </ul>
+              )}
             </section>
-          )}
+
+            {error && (
+              <div
+                role="alert"
+                className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
+
+            {preview && (
+              <section className="rounded-lg border border-slate-600 p-4">
+                <h3 className="font-medium text-slate-100">
+                  {t("Import preview")}
+                </h3>
+
+                <p className="mt-1 text-sm text-slate-300">
+                  {preview.preview.totalRows} {t("records detected")}
+                </p>
+
+                <ul className="mt-4 divide-y divide-gray-200">
+                  {preview.preview.files.map((file) => (
+                    <li
+                      key={file.fileName}
+                      className="flex items-center justify-between py-2 text-sm"
+                    >
+                      <span>{file.fileName}</span>
+                      <span>
+                        {file.status === "detected"
+                          ? `${file.entityType}: ${file.rowCount}`
+                          : file.error || file.status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
         )}
 
-        {step === 'configure' && preview && (
+        {step === "configure" && preview && (
           <ConfigureStep
             preview={preview}
             babies={babies}
@@ -436,7 +399,7 @@ export default function ExternalImport({
           />
         )}
 
-        {step === 'review' && preview && (
+        {step === "review" && preview && (
           <ReviewStep
             preview={preview}
             babies={babies}
@@ -444,21 +407,21 @@ export default function ExternalImport({
           />
         )}
 
-        {step === 'result' && completedResult && (
+        {step === "result" && completedResult && (
           <div className="space-y-6">
             <section className="rounded-lg border border-green-700 bg-green-950/40 p-4">
               <h3 className="font-medium text-green-100">
-                {t('Import completed')}
+                {t("Import completed")}
               </h3>
               <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-green-100">
                 <div>
-                  <dt>{t('Created')}</dt>
+                  <dt>{t("Created")}</dt>
                   <dd className="font-medium text-slate-100">
                     {completedResult.execution.created}
                   </dd>
                 </div>
                 <div>
-                  <dt>{t('Already imported')}</dt>
+                  <dt>{t("Already imported")}</dt>
                   <dd className="font-medium text-slate-100">
                     {completedResult.execution.duplicates}
                   </dd>
@@ -470,7 +433,7 @@ export default function ExternalImport({
       </FormPageContent>
 
       <FormPageFooter>
-        {step === 'select' && (
+        {step === "select" && (
           <>
             <Button
               type="button"
@@ -478,93 +441,77 @@ export default function ExternalImport({
               onClick={onClose}
               disabled={isPreviewing}
             >
-              {t('Cancel')}
+              {t("Cancel")}
             </Button>
 
             <Button
               type="button"
               onClick={handlePreview}
-              disabled={
-                files.length === 0 ||
-                isPreviewing
-              }
+              disabled={files.length === 0 || isPreviewing}
             >
               {isPreviewing
-                ? t('Previewing...')
+                ? t("Previewing...")
                 : preview
-                  ? t('Refresh preview')
-                  : t('Preview import')}
+                  ? t("Refresh preview")
+                  : t("Preview import")}
             </Button>
           </>
         )}
 
-        {step === 'configure' && (
+        {step === "configure" && (
           <>
             <Button
               type="button"
               variant="outline"
               onClick={() => {
-                setError('');
-                setStep('select');
+                setError("");
+                setStep("select");
               }}
             >
-              {t('Back')}
+              {t("Back")}
             </Button>
 
             <Button
               type="button"
               onClick={() => {
-                setError('');
-                setStep('review');
+                setError("");
+                setStep("review");
               }}
               disabled={
                 !configuration.sourceTimezone.trim() ||
-                Object.values(
-                  configuration.childDestinations,
-                ).some(
-                  destination =>
-                    (destination.mode ===
-                      'existing' &&
+                Object.values(configuration.childDestinations).some(
+                  (destination) =>
+                    (destination.mode === "existing" &&
                       !destination.targetBabyId) ||
-                    (destination.mode === 'new' &&
-                      !destination.gender),
+                    (destination.mode === "new" && !destination.gender),
                 )
               }
             >
-              {t('Continue')}
+              {t("Continue")}
             </Button>
           </>
         )}
 
-        {step === 'review' && (
+        {step === "review" && (
           <>
             <Button
               type="button"
               variant="outline"
-              onClick={() => setStep('configure')}
+              onClick={() => setStep("configure")}
               disabled={isImporting}
             >
-              {t('Back')}
+              {t("Back")}
             </Button>
 
-            <Button
-              type="button"
-              onClick={handleImport}
-              disabled={isImporting}
-            >
-              {isImporting
-                ? t('Importing...')
-                : t('Import records')}
+            <Button type="button" onClick={handleImport} disabled={isImporting}>
+              {isImporting ? t("Importing...") : t("Import records")}
             </Button>
           </>
         )}
 
-        {step === 'result' && (
-          <Button
-            type="button"
-            onClick={onClose}
-          >
-            {t('Close')}
+        {step === "result" && (
+          <Button type="button" onClick={onClose}>
+            {t("Close")}
           </Button>
         )}
       </FormPageFooter>
