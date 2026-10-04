@@ -10,7 +10,7 @@ import { getActivityDetails } from '@/src/components/Timeline/utils';
 import { ActivityType as TimelineActivityType } from '@/src/components/Timeline/types';
 import { useLocalization } from '@/src/context/localization';
 import { useTimezone } from '@/app/context/timezone';
-import { formatDateShort } from '@/src/utils/dateFormat';
+import { formatDateShort, formatClockTimeFromHours } from '@/src/utils/dateFormat';
 
 // Local helper to get activity time that works with reports ActivityType
 const getActivityTimeLocal = (activity: ActivityType): string => {
@@ -394,13 +394,7 @@ const ActivityTab: React.FC<ActivityTabProps> = ({
   }, []);
 
   // Format time for display
-  const formatTime = useCallback((h: number) => {
-    const hours = Math.floor(h);
-    const mins = Math.round((h - hours) * 60);
-    const period = hours >= 12 ? 'PM' : 'AM';
-    const displayHour = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-    return `${displayHour}:${mins.toString().padStart(2, '0')} ${period}`;
-  }, []);
+  const formatTime = formatClockTimeFromHours;
 
   // Generate hour grid lines (every hour from 0-24)
   const hourLines = useMemo(() => {

@@ -359,21 +359,9 @@ export default function ConfigTab({
           </div>
           <div>
             <Label className="form-label" htmlFor={timeFormatId}>{t('Time Format')}</Label>
-            <Select
-              value={(settings as any)?.timeFormat || '12h'}
-              onValueChange={(value) => {
-                onSettingsChange({ timeFormat: value } as any);
-                setDateTimeFormats(((settings as any)?.dateFormat || 'MM/DD/YYYY') as DateFormatSetting, value as TimeFormatSetting);
-              }}
-            >
-              <SelectTrigger id={timeFormatId}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="12h">{t('12-hour')} (1:30 PM)</SelectItem>
-                <SelectItem value="24h">{t('24-hour')} (13:30)</SelectItem>
-              </SelectContent>
-            </Select>
+            <div id={timeFormatId} className="rounded-md border border-slate-200 px-3 py-2 text-sm">
+              {t('12-hour')} (1:30 PM)
+            </div>
           </div>
         </div>
       </div>

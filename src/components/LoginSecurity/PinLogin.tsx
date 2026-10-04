@@ -6,6 +6,7 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { X, Eye, EyeOff } from 'lucide-react';
 import { ApiResponse } from '@/app/api/types';
+import { normalizePinEntry } from '@/src/utils/pin-entry';
 import { useLocalization } from '@/src/context/localization';
 
 interface PinLoginProps {
@@ -119,87 +120,27 @@ export default function PinLogin({
     checkAuthSettings();
   }, [familySlug]);
 
-  // No-op onChange handlers — all keyboard input is handled by handleKeyDown.
-  // Inputs are readOnly so onChange never fires, but React requires the prop on controlled inputs.
-  const handleLoginIdChange = () => {};
-  const handlePinChange = () => {};
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Determine which field is actually focused based on the target element
-    const target = e.target as HTMLInputElement;
-    const isLoginIdField = target.placeholder === 'ID';
-    const isPinField = target.placeholder === 'PIN';
-
-    // Allow only numbers, backspace, delete, arrow keys, tab, and enter
-    const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Enter'];
-    const isNumber = /^[0-9]$/.test(e.key);
-
-    if (!isNumber && !allowedKeys.includes(e.key)) {
-      e.preventDefault();
+  const handleLoginIdChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = normalizePinEntry(event.target.value, 2);
+    setLoginId(next);
+    setError('');
+    setActiveInput('loginId');
+    if (next.length === 2) {
+      setActiveInput('pin');
+      pinInputRef.current?.focus();
     }
+  };
 
-    // Handle number input based on which field is focused
-    if (isNumber) {
-      e.preventDefault();
-      if (isLoginIdField && loginId.length < 2) {
-        const newLoginId = loginId + e.key;
-        setLoginId(newLoginId);
-        setError('');
-        setActiveInput('loginId');
+  const handlePinChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setPin(normalizePinEntry(event.target.value));
+    setError('');
+    setActiveInput('pin');
+  };
 
-        // Auto-switch to PIN when login ID is complete
-        if (newLoginId.length === 2) {
-          setActiveInput('pin');
-          setTimeout(() => {
-            pinInputRef.current?.focus();
-          }, 0);
-        }
-      } else if (isPinField && pin.length < 10) {
-        setPin(pin + e.key);
-        setError('');
-        setActiveInput('pin');
-      }
-    }
-
-    // Handle backspace and delete for removing characters
-    if (e.key === 'Backspace' || e.key === 'Delete') {
-      e.preventDefault();
-      if (isLoginIdField && loginId.length > 0) {
-        setLoginId(loginId.slice(0, -1));
-        setError('');
-        setActiveInput('loginId');
-      } else if (isPinField && pin.length > 0) {
-        setPin(pin.slice(0, -1));
-        setError('');
-        setActiveInput('pin');
-      } else if (isPinField && pin.length === 0 && loginId.length > 0 && authType === 'CARETAKER') {
-        // Switch back to login ID if PIN is empty and there's content in login ID
-        setActiveInput('loginId');
-        setTimeout(() => {
-          loginIdInputRef.current?.focus();
-        }, 0);
-      }
-    }
-
-    // Handle tab and arrow key navigation between fields
-    if ((e.key === 'Tab' || e.key === 'ArrowUp' || e.key === 'ArrowDown') && authType === 'CARETAKER') {
-      e.preventDefault();
-      if (isLoginIdField) {
-        setActiveInput('pin');
-        setTimeout(() => {
-          pinInputRef.current?.focus();
-        }, 0);
-      } else if (isPinField) {
-        setActiveInput('loginId');
-        setTimeout(() => {
-          loginIdInputRef.current?.focus();
-        }, 0);
-      }
-    }
-
-    // Handle enter key for authentication
-    if (e.key === 'Enter') {
-      e.preventDefault();
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // Preserve native editing, selection, clipboard shortcuts and mobile Paste.
+    if (event.key === 'Enter') {
+      event.preventDefault();
       handleAuthenticate();
     }
   };
@@ -548,112 +489,46 @@ export default function PinLogin({
               <div className={`space-y-2 p-1 rounded-lg transition-all duration-200 ${activeInput === 'pin' || activeInput === 'loginId' ? 'login-field-active' : 'login-field-inactive'}`}>
                 <h2 className="text-gray-900 text-center login-card-title">{t('Login ID & Security PIN')}</h2>
 
-                {/* Combined ID and PIN Display */}
                 <div className="flex items-center justify-center gap-4 my-2">
-                  {/* ID Box - to the left */}
-                  <div
-                    className={`flex items-center justify-center w-16 h-12 border-2 rounded-lg cursor-pointer transition-all login-id-box ${
-                      activeInput === 'loginId'
-                        ? 'login-id-box-active'
-                        : 'login-id-box-inactive'
-                    }`}
-                    onClick={handleFocusLoginId}
-                  >
-                    <span className="login-id-text">
-                      {loginId || '--'}
-                    </span>
-                  </div>
-
-                  {/* PIN Display - to the right */}
-                  <div
-                    className="flex gap-2 cursor-pointer"
-                    onClick={handleFocusPin}
-                    role="img"
-                    aria-label={`${t('Digits entered')}: ${pin.length}`}
-                  >
-                    {pin.length === 0 ? (
-                      // Show 6 placeholder dots when no input
-                      Array.from({ length: 6 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`w-3 h-3 rounded-full ${activeInput === 'pin' ? 'bg-gray-300 security-dot-focus' : 'bg-gray-200/50 security-dot-placeholder'}`}
-                        />
-                      ))
-                    ) : (
-                      // Show actual number of dots for entered digits
-                      Array.from({ length: Math.max(pin.length, 6) }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`w-3 h-3 rounded-full ${i < pin.length ? 'bg-teal-600 security-dot-active' : 'bg-gray-200/50 security-dot-placeholder'}`}
-                        />
-                      ))
-                    )}
-                  </div>
+                  <Input
+                    ref={loginIdInputRef}
+                    aria-label={t('Login ID')}
+                    value={loginId}
+                    onChange={handleLoginIdChange}
+                    onKeyDown={handleKeyDown}
+                    className="w-16 h-12 text-center text-xl"
+                    placeholder="ID"
+                    maxLength={2}
+                    inputMode="numeric"
+                    autoComplete="username"
+                    autoFocus={activeInput === 'loginId'}
+                    onFocus={handleFocusLoginId}
+                    disabled={!!lockoutTime}
+                  />
+                  <Input
+                    ref={pinInputRef}
+                    aria-label={t('Security PIN')}
+                    type="password"
+                    value={pin}
+                    onChange={handlePinChange}
+                    onKeyDown={handleKeyDown}
+                    className="h-12 text-center text-xl font-semibold"
+                    placeholder="PIN"
+                    maxLength={10}
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    autoFocus={activeInput === 'pin'}
+                    onFocus={handleFocusPin}
+                    disabled={!!lockoutTime}
+                  />
                 </div>
-
-                {/* Hidden inputs */}
-                <Input
-                  ref={loginIdInputRef}
-                  aria-label={t('Login ID')}
-                  value={loginId}
-                  onChange={handleLoginIdChange}
-                  onKeyDown={handleKeyDown}
-                  className="text-center text-xl sr-only"
-                  placeholder="ID"
-                  maxLength={2}
-                  inputMode="none"
-                  readOnly
-                  autoFocus={activeInput === 'loginId'}
-                  onFocus={handleFocusLoginId}
-                  disabled={!!lockoutTime}
-                />
-                <Input
-                  ref={pinInputRef}
-                  aria-label={t('Security PIN')}
-                  type="password"
-                  value={pin}
-                  onChange={handlePinChange}
-                  onKeyDown={handleKeyDown}
-                  className="text-center text-xl font-semibold sr-only"
-                  placeholder="PIN"
-                  maxLength={10}
-                  inputMode="none"
-                  readOnly
-                  autoFocus={activeInput === 'pin'}
-                  onFocus={handleFocusPin}
-                  disabled={!!lockoutTime}
-                />
               </div>
             ) : (
               /* PIN input section for SYSTEM auth */
               <div className={`space-y-2 p-1 rounded-lg transition-all duration-200 ${activeInput === 'pin' ? 'login-field-active' : 'login-field-inactive'}`}>
                 <h2 className="text-gray-900 text-center login-card-title">{t('Security PIN')}</h2>
 
-                {/* PIN Display */}
-                <div
-                  className="flex gap-2 justify-center my-2 cursor-pointer"
-                  onClick={handleFocusPin}
-                  role="img"
-                  aria-label={`${t('Digits entered')}: ${pin.length}`}
-                >
-                  {pin.length === 0 ? (
-                    // Show 6 placeholder dots when no input
-                    Array.from({ length: 6 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className={`w-3 h-3 rounded-full ${activeInput === 'pin' ? 'bg-gray-300 security-dot-focus' : 'bg-gray-200/50 security-dot-placeholder'}`}
-                      />
-                    ))
-                  ) : (
-                    // Show actual number of dots for entered digits
-                    Array.from({ length: Math.max(pin.length, 6) }).map((_, i) => (
-                      <div
-                        key={i}
-                        className={`w-3 h-3 rounded-full ${i < pin.length ? 'bg-teal-600 security-dot-active' : 'bg-gray-200/50 security-dot-placeholder'}`}
-                      />
-                    ))
-                  )}
-                </div>
+
                 <Input
                   ref={pinInputRef}
                   aria-label={t('Security PIN')}
@@ -661,11 +536,11 @@ export default function PinLogin({
                   value={pin}
                   onChange={handlePinChange}
                   onKeyDown={handleKeyDown}
-                  className="text-center text-xl font-semibold sr-only"
+                  className="h-12 text-center text-xl font-semibold"
                   placeholder="PIN"
                   maxLength={10}
-                  inputMode="none"
-                  readOnly
+                  inputMode="numeric"
+                  autoComplete="current-password"
                   autoFocus={activeInput === 'pin'}
                   onFocus={handleFocusPin}
                   disabled={!!lockoutTime}

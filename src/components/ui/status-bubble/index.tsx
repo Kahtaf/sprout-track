@@ -162,8 +162,9 @@ export function StatusBubble({
     }
   };
 
-  const labelHours = Math.floor(displayDuration / 60);
-  const labelMinutes = displayDuration % 60;
+  const elapsedMinutes = Math.max(0, Math.floor(Number.isFinite(displayDuration) ? displayDuration : 0));
+  const labelHours = Math.floor(elapsedMinutes / 60);
+  const labelMinutes = elapsedMinutes % 60;
   const durationLabel = [
     labelHours > 0 ? `${labelHours} ${labelHours === 1 ? t('hour') : t('hours')}` : null,
     `${labelMinutes} ${labelMinutes === 1 ? t('minute') : t('minutes')}`
@@ -177,6 +178,7 @@ export function StatusBubble({
       ref={screenEdgeAware ? bubbleRef : undefined}
       role="img"
       aria-label={ariaLabel}
+      title={ariaLabel}
       className={cn(
         styles.base,
         bgColor,
@@ -184,7 +186,7 @@ export function StatusBubble({
       )}
     >
       {icon}
-      <span>{status === 'feedActive' ? t('Feeding') : formatDuration(displayDuration)}</span>
+      <span className="whitespace-nowrap">{status === 'feedActive' ? t('Feeding') : status === 'feed' ? `${labelHours}h ${labelMinutes}m` : formatDuration(elapsedMinutes)}</span>
     </div>
   );
 }

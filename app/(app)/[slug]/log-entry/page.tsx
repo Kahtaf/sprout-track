@@ -476,9 +476,15 @@ function HomeContent(): React.ReactElement {
   const handleLatestStatusReady = useCallback((data: import('@/src/components/Timeline/types').LatestStatusData) => {
     if (!selectedBaby?.id) return;
 
-    if (data.lastFeedTime) {
-      setLastFeedTime(prev => ({ ...prev, [selectedBaby.id]: data.lastFeedTime! }));
-    }
+    setLastFeedTime(prev => {
+      const next = { ...prev };
+      if (data.lastFeedTime) {
+        next[selectedBaby.id] = data.lastFeedTime;
+      } else {
+        delete next[selectedBaby.id];
+      }
+      return next;
+    });
     // Always sync (set or clear) so a stale end time from an older breast feed
     // doesn't linger after a feed with no end time (e.g. bottle) becomes the latest
     setLastFeedEndTime(prev => {

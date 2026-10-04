@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import {
   DateFormatSetting,
   TimeFormatSetting,
+  UI_TIME_FORMAT,
   formatTimeDisplay,
   formatDateLong,
   formatDateTimeDisplay as formatDateTimeUtil,
@@ -131,7 +132,7 @@ export function TimezoneProvider({ children }: { children: ReactNode }) {
   const [userTimezone, setUserTimezone] = useState<string>('UTC');
   const [isDST, setIsDST] = useState<boolean>(false);
   const [dateFormat, setDateFormat] = useState<DateFormatSetting>('MM/DD/YYYY');
-  const [timeFormat, setTimeFormat] = useState<TimeFormatSetting>('12h');
+  const [timeFormat, setTimeFormat] = useState<TimeFormatSetting>(UI_TIME_FORMAT);
 
   /**
    * Detect and set the user's timezone and DST status
@@ -184,7 +185,7 @@ export function TimezoneProvider({ children }: { children: ReactNode }) {
         const result = await response.json();
         if (result.success && result.data) {
           if (result.data.dateFormat) setDateFormat(result.data.dateFormat);
-          if (result.data.timeFormat) setTimeFormat(result.data.timeFormat);
+          if (result.data.timeFormat) setTimeFormat(UI_TIME_FORMAT);
         }
       } catch (error) {
         console.error('Error fetching date/time format settings:', error);
@@ -196,9 +197,9 @@ export function TimezoneProvider({ children }: { children: ReactNode }) {
   /**
    * Update the date and time format settings immediately (called from settings UI)
    */
-  const setDateTimeFormats = useCallback((newDateFormat: DateFormatSetting, newTimeFormat: TimeFormatSetting) => {
+  const setDateTimeFormats = useCallback((newDateFormat: DateFormatSetting, _newTimeFormat: TimeFormatSetting) => {
     setDateFormat(newDateFormat);
-    setTimeFormat(newTimeFormat);
+    setTimeFormat(UI_TIME_FORMAT);
   }, []);
 
   // Refresh timezone when window gains focus (in case user changed system timezone)
@@ -241,14 +242,15 @@ export function TimezoneProvider({ children }: { children: ReactNode }) {
     formatOptions?: Intl.DateTimeFormatOptions
   ): string => {
     // Apply format-aware defaults when no explicit options are passed
-    const options: Intl.DateTimeFormatOptions = formatOptions ?? {
+    const options: Intl.DateTimeFormatOptions = formatOptions ? { ...formatOptions } : {
       hour: 'numeric',
       minute: '2-digit',
       hour12: timeFormat === '12h',
     };
-    // If caller provided options with hour but not hour12, apply the setting
-    if (formatOptions && 'hour' in formatOptions && formatOptions.hour12 === undefined) {
-      options.hour12 = timeFormat === '12h';
+    // Clock displays always use AM/PM, including explicit caller options.
+    if ('hour' in options) {
+      options.hour12 = true;
+      delete options.hourCycle;
     }
     if (!isoString) return '';
     

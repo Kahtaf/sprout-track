@@ -7,6 +7,7 @@ import {
 } from '@/src/components/ui/dialog';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
+import { DateTimePicker } from '@/src/components/ui/date-time-picker';
 import {
   Select,
   SelectContent,
@@ -146,15 +147,10 @@ export default function DiaperModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="form-label">{t('Time')}</label>
-              <Input
-                type="datetime-local"
-                value={formData.time}
-                onChange={(e) =>
-                  setFormData({ ...formData, time: e.target.value })
-                }
-                className="w-full"
-                required
-                tabIndex={-1}
+              <DateTimePicker
+                  value={new Date(formData.time)}
+                  onChange={(date) => setFormData({ ...formData, time: formatDateForInput(date.toISOString()) })}
+                  className="w-full"
               />
             </div>
             <div>

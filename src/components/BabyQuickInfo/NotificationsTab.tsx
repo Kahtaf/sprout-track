@@ -224,7 +224,7 @@ const NotificationsTab: React.FC<NotificationsTabProps> = ({
                   {event.title}
                 </div>
                 <div className={cn(styles.eventTime, "baby-quick-info-event-time")}>
-                  {new Date(event.startTime).toLocaleDateString()} at {new Date(event.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(event.startTime).toLocaleDateString()} at {new Date(event.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                 </div>
                 {event.location && (
                   <div className={cn(styles.eventLocation, "baby-quick-info-event-location")}>

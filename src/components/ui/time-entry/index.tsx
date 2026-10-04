@@ -5,7 +5,6 @@ import { cn } from '@/src/lib/utils';
 import { TimeEntryProps } from './time-entry.types';
 import { timeEntryStyles as styles } from './time-entry.styles';
 import { useLocalization } from '@/src/context/localization';
-import { useTimezone } from '@/app/context/timezone';
 
 import './time-entry.css';
 
@@ -36,8 +35,9 @@ export function TimeEntry({
   maxTime,
 }: TimeEntryProps) {
   const { t } = useLocalization();
-  const { timeFormat } = useTimezone();
-  const is24h = timeFormat === '24h';
+  // This deployment always presents clock entry with AM/PM. Numeric Date
+  // hours remain unchanged for input serialization and timestamp arithmetic.
+  const is24h = false;
 
   // Extract initial time values
   const getInitialValues = () => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
+import { UI_TIME_FORMAT } from '@/src/utils/dateFormat';
 import { ApiResponse } from '../types';
 import { Settings } from '@prisma/client';
 import { withAuthContext, AuthResult } from '../utils/auth';
@@ -10,7 +11,7 @@ import { resolveFamilyScope } from '../utils/family-scope';
 // The family securityPin (login PIN) must never be returned to the client.
 type SettingsResponse = Omit<Settings, 'securityPin'>;
 function toSettingsResponse({ securityPin: _securityPin, ...rest }: Settings): SettingsResponse {
-  return rest;
+  return { ...rest, timeFormat: UI_TIME_FORMAT };
 }
 
 async function handleGet(req: NextRequest, authContext: AuthResult) {
@@ -126,6 +127,10 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
         // A blank securityPin means "keep the existing PIN" — never overwrite the
         // family login PIN with an empty value (responses no longer return it).
         if (field === 'securityPin' && (body[field] === '' || body[field] === null)) {
+          continue;
+        }
+        if (field === 'timeFormat') {
+          data.timeFormat = UI_TIME_FORMAT;
           continue;
         }
         if (field === 'photoQuotaMB') {

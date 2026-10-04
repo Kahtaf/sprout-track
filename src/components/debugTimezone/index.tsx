@@ -213,7 +213,7 @@ export function TimezoneDebug() {
           <span className="font-semibold">{t('Context Loading:')}</span> {info.isLoading ? 'Yes' : 'No'}
         </div>
         <div>
-          <span className="font-semibold">{t('Init Time:')}</span> {new Date(info.initTime).toLocaleTimeString()}
+          <span className="font-semibold">{t('Init Time:')}</span> {new Date(info.initTime).toLocaleTimeString('en-US', { hour12: true })}
         </div>
         <div className="text-xs overflow-hidden text-ellipsis">
           <span className="font-semibold">{t('Browser Info:')}</span> {navigator.userAgent}

@@ -547,7 +547,7 @@ export function ActivityTileGroup({
                   ? feedEndTime
                   : feedStartTimeVal;
 
-                return selectedBaby?.id && effectiveFeedTime && !exceeds24Hours(effectiveFeedTime) && (
+                return selectedBaby?.id && effectiveFeedTime && (
                   <StatusBubble
                     status="feed"
                     className={`overflow-visible ${isLeftmost ? 'z-[39]' : 'z-40'}`}

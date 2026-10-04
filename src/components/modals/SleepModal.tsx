@@ -7,6 +7,7 @@ import {
 } from '@/src/components/ui/dialog';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
+import { DateTimePicker } from '@/src/components/ui/date-time-picker';
 import {
   Select,
   SelectContent,
@@ -243,30 +244,20 @@ export default function SleepModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="form-label">{t('Start Time')}</label>
-              <Input
-                type="datetime-local"
-                value={formData.startTime}
-                onChange={(e) =>
-                  setFormData({ ...formData, startTime: e.target.value })
-                }
-                className="w-full"
-                required
-                tabIndex={-1}
+              <DateTimePicker
+                  value={new Date(formData.startTime)}
+                  onChange={(date) => setFormData({ ...formData, startTime: formatDateForInput(date.toISOString()) })}
+                  className="w-full"
                 disabled={isSleeping && !isEditMode} // Only disabled when ending sleep and not editing
               />
             </div>
             {(isSleeping || isEditMode) && (
               <div>
                 <label className="form-label">{t('End Time')}</label>
-                <Input
-                  type="datetime-local"
-                  value={formData.endTime || initialTime}
-                  onChange={(e) =>
-                    setFormData({ ...formData, endTime: e.target.value })
-                  }
+                <DateTimePicker
+                  value={new Date(formData.endTime || initialTime)}
+                  onChange={(date) => setFormData({ ...formData, endTime: formatDateForInput(date.toISOString()) })}
                   className="w-full"
-                  required={isSleeping}
-                  tabIndex={-1}
                 />
               </div>
             )}

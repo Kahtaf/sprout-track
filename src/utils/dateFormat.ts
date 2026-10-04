@@ -5,6 +5,14 @@
 
 export type DateFormatSetting = 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'YYYY-MM-DD';
 export type TimeFormatSetting = '12h' | '24h';
+export const UI_TIME_FORMAT: TimeFormatSetting = '12h';
+
+/** A report's decimal clock hour, wrapping 24:00 and rounding minute carry. */
+export function formatClockTimeFromHours(hour: number): string {
+  const minutes = ((Math.round(hour * 60) % 1440) + 1440) % 1440;
+  const clockHour = Math.floor(minutes / 60);
+  return `${clockHour % 12 || 12}:${String(minutes % 60).padStart(2, '0')} ${clockHour >= 12 ? 'PM' : 'AM'}`;
+}
 
 /**
  * Format a Date object as a time string according to the time format setting.
