@@ -99,7 +99,7 @@ export function PwaServiceWorker() {
     setChanges(current => current.filter(item => item.seq !== change.seq && !(dependent && item.seq > change.seq && item.recordId === change.recordId)));
     postOfflineMessage({type:'REPLAY'});
   };
-  const needsLogin = status.status === 'auth-required';
+  const needsLogin = status.status === 'auth-required' && status.pending > 0;
   const hasProblem = ['error','conflict'].includes(status.status);
   const label = needsLogin ? 'Sign in to sync saved changes' : hasProblem ? (status.error || 'Changes saved on this device. Sync needs attention.') : status.status === 'syncing' ? 'Syncing saved changes…' : (offline || status.status === 'offline') ? 'Offline · using data saved on this device' : status.pending ? `${status.pending} changes waiting to sync` : '';
   if (!label && !install && !ios && !review) return null;
