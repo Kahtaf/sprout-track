@@ -40,3 +40,8 @@ Photos, vaccine/feedback documents and other file attachments are unavailable un
 - `scripts/test-local-history-import.py`: both import adapters, timezone/seconds and replay/recovery with synthetic fixtures.
 
 Read each script's help before use. Remote mutations require explicit script flags and only synthetic test records are cleaned up. Treat bootstrap identity and backup archives as private data.
+
+
+## Custom domain
+
+The production app is available at https://baby.kahtaf.com/my-family. `wrangler.jsonc` retains the custom domain route so redeployments preserve it. The original workers.dev address remains enabled. Cloudflare provisions the DNS record and HTTPS certificate for the Worker custom domain.
