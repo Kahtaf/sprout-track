@@ -57,3 +57,7 @@ Each foreground/focus transition syncs pending changes, then refreshes shared hi
 Queued creates use stable request IDs so interrupted acknowledgements cannot create duplicates. Offline edits use the previously cached record version; conflicting server edits are retained for review rather than overwritten. The sync banner offers retry, review and export of pending changes. Signing out clears private cached reads and pauses replay; unsynced changes remain bound to their original family until that family signs in again.
 
 Device storage is subject to browser eviction. Keep the app's pending count at zero before clearing site data or removing the installed app. Full server backups remain available once changes have synced.
+
+### Manifest discovery with streamed metadata
+
+The manifest link is an explicit direct child of the root HTML head. Family layout metadata must not override it: this runtime can stream route metadata into the body on the logged-in route, which Chromium ignores when discovering the install manifest. This personal deployment uses `/manifest.json` with a canonical `/my-family` launch URL and the existing family app identity. Verify exactly one head manifest link in the actual rendered log-entry HTML after changing layouts.

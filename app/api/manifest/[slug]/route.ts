@@ -20,7 +20,7 @@ export async function GET(
     name: 'Sprout Track',
     short_name: 'Sprout Track',
     description: "Track your baby's sleep, feeding, diapers, milestones, and more.",
-    start_url: `/${slug}/`,
+    start_url: `/${slug}`,
     scope: '/',
     display: 'standalone',
     background_color: '#0d9488',

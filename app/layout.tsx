@@ -20,7 +20,6 @@ export const metadata: Metadata = {
   description: 'Private family baby tracker for feeding, diapers, sleep and growth.',
   icons: { icon: '/sprout-128.png', shortcut: '/sprout-128.png', apple: APPLE_TOUCH_ICON },
   robots: { index: false, follow: false, noarchive: true },
-  manifest: '/manifest.json',
   other: { 'apple-mobile-web-app-capable': 'yes', 'apple-mobile-web-app-status-bar-style': 'black-translucent' },
 };
 
@@ -38,6 +37,7 @@ export default function RootLayout({
 
   return (
     <html lang="en" className={cn('h-full', fontSans.variable)} suppressHydrationWarning>
+      <head><link rel="manifest" href="/manifest.json" /></head>
       <body className={cn('min-h-full bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 font-sans antialiased')} suppressHydrationWarning>
         <LocalizationProvider>
           <TimezoneProvider>

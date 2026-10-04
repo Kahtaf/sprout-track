@@ -9,7 +9,6 @@ export async function generateMetadata({
   const { slug } = await params;
 
   return {
-    manifest: `/api/manifest/${encodeURIComponent(slug)}`,
     other: {
       'apple-mobile-web-app-capable': 'yes',
       'apple-mobile-web-app-status-bar-style': 'black-translucent',
