@@ -1,3 +1,4 @@
+import { createReplaySafeActivity, softDeleteActivity, requireActiveActivity, offlineMutationVersion, offlineWriteConflict, OfflineActivityError } from '@/prisma/offline-activity';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import { ApiResponse, FeedLogCreate, FeedLogResponse } from '../types';
@@ -62,9 +63,9 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
       familyId,
     };
     
-    const feedLog = await prisma.feedLog.create({
-      data,
-    });
+    const { record: feedLog, created } = await createReplaySafeActivity(req, prisma.feedLog, familyId, body.babyId, (id, timestamp) => prisma.feedLog.create({
+      data: { ...data, ...(id ? { id } : {}), ...(timestamp ? { createdAt: timestamp, updatedAt: timestamp } : {}) },
+    }));
 
     // Format dates as ISO strings for response
     const response: FeedLogResponse = {
@@ -76,14 +77,16 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     };
 
     // Notify subscribers about activity creation (non-blocking)
-    notifyActivityCreated(feedLog.babyId, 'feed', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { type: body.type, amount: body.amount, unitAbbr: body.unitAbbr, food: body.food, side: body.side }).catch(console.error);
-    resetTimerNotificationState(feedLog.babyId, 'feed').catch(console.error);
+    if (created) notifyActivityCreated(feedLog.babyId, 'feed', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { type: body.type, amount: body.amount, unitAbbr: body.unitAbbr, food: body.food, side: body.side }).catch(console.error);
+    if (created) resetTimerNotificationState(feedLog.babyId, 'feed').catch(console.error);
 
     return NextResponse.json<ApiResponse<FeedLogResponse>>({
       success: true,
       data: response,
-    });
+    }, { headers: { 'X-Offline-Replay': created ? 'false' : 'true' } });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error creating feed log:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to create feed log';
     return NextResponse.json<ApiResponse<FeedLogResponse>>(
@@ -145,6 +148,13 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       );
     }
 
+    requireActiveActivity(existingFeedLog);
+    const offlineVersion = offlineMutationVersion(req, existingFeedLog);
+    if (body.babyId !== undefined && body.babyId !== existingFeedLog.babyId) {
+      const baby = await prisma.baby.findFirst({ where: { id: body.babyId, familyId, deletedAt: null } });
+      if (!baby) return NextResponse.json({ success: false, error: 'Baby not found in this family.' }, { status: 404 });
+    }
+
     // Process all date fields - convert to UTC
     const data = {
       ...(body.time ? { time: toUTC(body.time) } : {}),
@@ -163,12 +173,12 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
         ? { reactionCause: body.reactionCause && body.reactionCause.trim() ? body.reactionCause : null }
         : {}),
       ...Object.entries(body)
-        .filter(([key]) => !['time', 'startTime', 'endTime', 'feedDuration', 'notes', 'bottleType', 'breastMilkAmount', 'hadReaction', 'reactionDescription', 'reactionCause', 'familyId', 'sourcePumpId'].includes(key))
+        .filter(([key]) => ['babyId', 'type', 'amount', 'unitAbbr', 'side', 'food', 'sessionId'].includes(key))
         .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {}),
     };
 
     const feedLog = await prisma.feedLog.update({
-      where: { id },
+      where: { id, familyId: familyId, deletedAt: null, ...(offlineVersion ? { updatedAt: offlineVersion } : {}) },
       data,
     });
 
@@ -186,6 +196,8 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error updating feed log:', error);
     return NextResponse.json<ApiResponse<FeedLogResponse>>(
       {
@@ -208,6 +220,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
     const { familyId } = authContext;
 
     const queryParams: any = {
+      deletedAt: null,
       familyId,
       ...(babyId && { babyId }),
       ...(typeParam && { type: typeParam as FeedType }),
@@ -222,6 +235,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
     if (id) {
       const feedLog = await prisma.feedLog.findFirst({
         where: {
+          deletedAt: null,
           id,
           familyId,
         },
@@ -273,6 +287,8 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error fetching feed logs:', error);
     return NextResponse.json<ApiResponse<FeedLogResponse[]>>(
       {
@@ -307,28 +323,14 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
     }
 
     // Get family ID from request headers
-    const existingFeedLog = await prisma.feedLog.findFirst({
-      where: { id, familyId },
-    });
-
-    if (!existingFeedLog) {
-      return NextResponse.json<ApiResponse<void>>(
-        {
-          success: false,
-          error: 'Feed log not found',
-        },
-        { status: 404 }
-      );
-    }
-
-    await prisma.feedLog.delete({
-      where: { id },
-    });
+    await softDeleteActivity(req, prisma.feedLog, familyId, id);
 
     return NextResponse.json<ApiResponse<void>>({
       success: true,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error deleting feed log:', error);
     return NextResponse.json<ApiResponse<void>>(
       {

@@ -45,3 +45,15 @@ Read each script's help before use. Remote mutations require explicit script fla
 ## Custom domain
 
 The production app is available at https://baby.kahtaf.com/my-family. `wrangler.jsonc` retains the custom domain route so redeployments preserve it. The original workers.dev address remains enabled. Cloudflare provisions the DNS record and HTTPS certificate for the Worker custom domain.
+
+## Installed app and offline use
+
+Open the family URL and sign in while connected on each device before installing. Android Chrome offers Install app; iPhone Safari uses Share → Add to Home Screen. The service worker saves the family app shell, static assets, reference data and existing history on that device.
+
+Feeding, diaper, sleep, pumping and note entries support offline create/edit/delete. Changes are committed to an IndexedDB journal before the UI reports success, appear in the local history immediately, and replay in order when connected. Account changes, imports, other activity forms and uploads require a connection. Active breastfeeding timer coordination also requires a connection; finalized feed entries can be logged offline.
+
+Each foreground/focus transition syncs pending changes, then refreshes shared history and activity badges. No background polling or WebSocket service is required. A closed app does not promise background sync: reopen it with a connection to publish pending entries. Both caregivers use the same family login and shared D1 history.
+
+Queued creates use stable request IDs so interrupted acknowledgements cannot create duplicates. Offline edits use the previously cached record version; conflicting server edits are retained for review rather than overwritten. The sync banner offers retry, review and export of pending changes. Signing out clears private cached reads and pauses replay; unsynced changes remain bound to their original family until that family signs in again.
+
+Device storage is subject to browser eviction. Keep the app's pending count at zero before clearing site data or removing the installed app. Full server backups remain available once changes have synced.

@@ -1,4 +1,5 @@
 'use client';
+import { decodeJwtPayloadPart } from '@/src/utils/jwt-payload';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, usePathname, useParams } from 'next/navigation';
@@ -29,7 +30,8 @@ import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
 import AccountExpirationBanner from '@/src/components/ui/account-expiration-banner';
 import NotificationSplashModal from '@/src/components/modals/NotificationSplashModal';
-import { PwaServiceWorker } from '@/src/components/PwaServiceWorker';
+import { canUseOfflineFamily, prepareOfflineLogout } from '@/src/lib/offline/session';
+import { refreshFailureIsTransient } from '@/src/utils/session-timeout';
 import { checkPushSupport, checkSubscriptionStatus } from '@/src/lib/notifications/client';
 import { cacheDefaultBottleUnit } from '@/src/utils/defaultBottleUnit';
 import {
@@ -190,7 +192,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
       if (authToken) {
         try {
           const payload = authToken.split('.')[1];
-          const decodedPayload = JSON.parse(atob(payload));
+          const decodedPayload = decodeJwtPayloadPart(payload);
           isSysAdmin = decodedPayload.isSysAdmin || false;
         } catch (error) {
           console.error('Error parsing JWT token:', error);
@@ -224,7 +226,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
       if (authToken) {
         try {
           const payload = authToken.split('.')[1];
-          const decodedPayload = JSON.parse(atob(payload));
+          const decodedPayload = decodeJwtPayloadPart(payload);
           if (decodedPayload.isAccountAuth) {
             accountUserInfo = {
               name: decodedPayload.name,
@@ -356,6 +358,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
   // `reason` becomes a short `src` query param on the destination so unexpected
   // bounces to the homepage can be diagnosed from the resulting URL (issue #209)
   const handleLogout = async (reason: string = 'logout-user') => {
+    if (!(await prepareOfflineLogout(reason))) return;
     // Get the token to invalidate it server-side
     const token = localStorage.getItem('authToken');
     const currentCaretakerId = localStorage.getItem('caretakerId');
@@ -365,7 +368,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
     if (token) {
       try {
         const payload = token.split('.')[1];
-        const decodedPayload = JSON.parse(atob(payload));
+        const decodedPayload = decodeJwtPayloadPart(payload);
         isAccountAuth = decodedPayload.isAccountAuth || false;
       } catch (error) {
         console.error('Error parsing JWT token during logout:', error);
@@ -443,7 +446,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
     if (authToken) {
       try {
         const payload = authToken.split('.')[1];
-        const decodedPayload = JSON.parse(atob(payload));
+        const decodedPayload = decodeJwtPayloadPart(payload);
         isAccountAuth = decodedPayload.isAccountAuth || false;
         isSysAdmin = decodedPayload.isSysAdmin || false;
       } catch (error) {
@@ -492,7 +495,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
     if (authToken) {
       try {
         const payload = authToken.split('.')[1];
-        const decodedPayload = JSON.parse(atob(payload));
+        const decodedPayload = decodeJwtPayloadPart(payload);
         isAccountAuth = decodedPayload.isAccountAuth || false;
         isSysAdmin = decodedPayload.isSysAdmin || false;
       } catch (error) {
@@ -558,7 +561,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
       if (authToken) {
         try {
           const payload = authToken.split('.')[1];
-          const decodedPayload = JSON.parse(atob(payload));
+          const decodedPayload = decodeJwtPayloadPart(payload);
           isAccountAuth = decodedPayload.isAccountAuth || false;
           isSysAdmin = decodedPayload.isSysAdmin || false;
         } catch (error) {
@@ -578,13 +581,16 @@ function AppContent({ children }: { children: React.ReactNode }) {
         return;
       }
       
+      // Cached local access belongs only to the previously confirmed family; this is not server authentication.
+      if (canUseOfflineFamily(familySlug)) return;
+
       // Check if JWT token has expired and validate family access
       try {
         // JWT tokens are in format: header.payload.signature
         // We need the payload part (index 1)
         const payload = authToken.split('.')[1];
         // The payload is base64 encoded, so we need to decode it
-        const decodedPayload = JSON.parse(atob(payload));
+        const decodedPayload = decodeJwtPayloadPart(payload);
         
         // Check if token has expired or is near expiry — attempt refresh
         if (decodedPayload.exp) {
@@ -598,7 +604,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
             // Token already expired — try refresh before logging out
             console.log('JWT token has expired, attempting refresh...');
             refreshAccessToken().then(success => {
-              if (!success) {
+              if (!success && !refreshFailureIsTransient()) {
                 console.log('Refresh failed, logging out...');
                 handleLogout('logout-refresh-failed');
               }
@@ -670,7 +676,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
       
       try {
         const payload = authToken.split('.')[1];
-        const decodedPayload = JSON.parse(atob(payload));
+        const decodedPayload = decodeJwtPayloadPart(payload);
         const isAccountUser = decodedPayload.isAccountAuth || false;
         
         // Only open PaymentModal for account users
@@ -765,7 +771,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
           // We need the payload part (index 1)
           const payload = authToken.split('.')[1];
           // The payload is base64 encoded, so we need to decode it
-          const decodedPayload = JSON.parse(atob(payload));
+          const decodedPayload = decodeJwtPayloadPart(payload);
           
           // Set caretaker name and admin status from token
           if (decodedPayload.name) {
@@ -866,6 +872,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
                       >
                         <Image
                           src="/sprout-128.png"
+                          unoptimized
                           alt="Sprout Logo"
                           width={64}
                           height={64}
@@ -1035,6 +1042,7 @@ export default function AppLayout({
   // `reason` becomes a short `src` query param on the destination so unexpected
   // bounces to the homepage can be diagnosed from the resulting URL (issue #209)
   const handleLogout = async (reason: string = 'logout-user') => {
+    if (!(await prepareOfflineLogout(reason))) return;
     // Get the token to invalidate it server-side
     const token = localStorage.getItem('authToken');
     const currentCaretakerId = localStorage.getItem('caretakerId');
@@ -1044,7 +1052,7 @@ export default function AppLayout({
     if (token) {
       try {
         const payload = token.split('.')[1];
-        const decodedPayload = JSON.parse(atob(payload));
+        const decodedPayload = decodeJwtPayloadPart(payload);
         isAccountAuth = decodedPayload.isAccountAuth || false;
       } catch (error) {
         console.error('Error parsing JWT token during logout:', error);
@@ -1094,7 +1102,7 @@ export default function AppLayout({
           <BabyProvider>
             <ThemeProvider>
               <ToastProvider>
-                <PwaServiceWorker />
+
                 <DynamicTitle />
                 <AppContent>{children}</AppContent>
               </ToastProvider>

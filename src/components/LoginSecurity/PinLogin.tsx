@@ -6,6 +6,7 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { X, Eye, EyeOff } from 'lucide-react';
 import { ApiResponse } from '@/app/api/types';
+import { rememberOnlineFamily } from '@/src/lib/offline/session';
 import { normalizePinEntry } from '@/src/utils/pin-entry';
 import { useLocalization } from '@/src/context/localization';
 
@@ -209,6 +210,7 @@ export default function PinLogin({
       if (data.success && data.data.isSysAdmin) {
         // Store sysadmin authentication
         localStorage.setItem('authToken', data.data.token);
+        rememberOnlineFamily(data.data.token);
         localStorage.setItem('unlockTime', Date.now().toString());
 
         // Clear any existing caretaker auth
@@ -293,6 +295,7 @@ export default function PinLogin({
         localStorage.setItem('unlockTime', Date.now().toString());
         localStorage.setItem('caretakerId', data.data.id);
         localStorage.setItem('authToken', data.data.token);
+        rememberOnlineFamily(data.data.token);
 
         // Get the AUTH_LIFE and IDLE_TIME values for client-side timeout checks
         const authLifeResponse = await fetch('/api/settings/auth-life');

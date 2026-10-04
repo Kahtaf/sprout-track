@@ -1,7 +1,10 @@
 'use client';
+import { decodeJwtPayloadPart } from '@/src/utils/jwt-payload';
 
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
+import { syncOfflineSession } from '@/src/lib/offline/session';
+import { refreshFailureIsTransient } from '@/src/utils/session-timeout';
 import { useDeployment } from '../../app/context/deployment';
 import {
   isRootSlugPath,
@@ -76,7 +79,7 @@ export function FamilyProvider({ children, onLogout }: { children: ReactNode; on
         if (authToken) {
           try {
             const payload = authToken.split('.')[1];
-            const decodedPayload = JSON.parse(atob(payload));
+            const decodedPayload = decodeJwtPayloadPart(payload);
             isSysAdmin = decodedPayload.isSysAdmin || false;
           } catch (error) {
             console.error('Error parsing JWT token in family context:', error);
@@ -153,7 +156,7 @@ export function FamilyProvider({ children, onLogout }: { children: ReactNode; on
       let decodedPayload;
       try {
         const payload = authToken.split('.')[1];
-        decodedPayload = JSON.parse(atob(payload));
+        decodedPayload = decodeJwtPayloadPart(payload);
       } catch (error) {
         console.error('Error parsing JWT token for expiration check:', error);
         return;
@@ -242,6 +245,7 @@ export function FamilyProvider({ children, onLogout }: { children: ReactNode; on
           };
         }
 
+        syncOfflineSession();
         let response = await originalFetch(...args);
 
         // On a 401 from an API call (excluding auth endpoints), attempt one
@@ -264,7 +268,7 @@ export function FamilyProvider({ children, onLogout }: { children: ReactNode; on
               retryOptions.headers = retryHeaders;
               response = await originalFetch(args[0], retryOptions);
             }
-          } else {
+          } else if (!refreshFailureIsTransient()) {
             // Refresh failed — the session is genuinely over, trigger logout.
             // BUT: Don't trigger logout if we're on the root slug page (login
             // page). The login page expects 401s and handles authentication.

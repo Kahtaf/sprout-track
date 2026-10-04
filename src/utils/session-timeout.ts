@@ -1,3 +1,4 @@
+import { rememberOnlineFamily, syncOfflineSession } from '@/src/lib/offline/session';
 /**
  * Session timeout, 401-retry, and family-slug validation helpers (issue #209).
  *
@@ -219,6 +220,8 @@ export async function validateFamilySlugWithRetry(
 // and the global 401 interceptor) so parallel 401s trigger exactly one
 // POST /api/auth/refresh-token.
 let inFlightRefresh: Promise<boolean> | null = null;
+let refreshFailure: 'none'|'transient'|'unauthorized' = 'none';
+export function refreshFailureIsTransient(): boolean { return refreshFailure === 'transient'; }
 
 /**
  * Refresh the access token using the HTTP-only refresh token cookie and store
@@ -234,7 +237,9 @@ export function refreshAuthToken(fetchFn: typeof fetch = fetch): Promise<boolean
 }
 
 async function doRefresh(fetchFn: typeof fetch): Promise<boolean> {
+  refreshFailure = 'none';
   try {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) { refreshFailure = 'transient'; return false; }
     const response = await fetchFn('/api/auth/refresh-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -244,6 +249,8 @@ async function doRefresh(fetchFn: typeof fetch): Promise<boolean> {
       const data = await response.json();
       if (data.success && data.data?.token) {
         localStorage.setItem('authToken', data.data.token);
+        rememberOnlineFamily(data.data.token);
+        syncOfflineSession();
         // Reset unlock time for PIN-based users
         if (localStorage.getItem('unlockTime')) {
           localStorage.setItem('unlockTime', Date.now().toString());
@@ -251,8 +258,10 @@ async function doRefresh(fetchFn: typeof fetch): Promise<boolean> {
         return true;
       }
     }
+    refreshFailure = response.status === 401 || response.status === 403 ? 'unauthorized' : 'transient';
     return false;
   } catch (error) {
+    refreshFailure = 'transient';
     console.error('Error refreshing access token:', error);
     return false;
   }

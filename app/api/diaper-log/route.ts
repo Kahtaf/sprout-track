@@ -1,3 +1,4 @@
+import { createReplaySafeActivity, softDeleteActivity, requireActiveActivity, offlineMutationVersion, offlineWriteConflict, OfflineActivityError } from '@/prisma/offline-activity';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import { ApiResponse, DiaperLogCreate, DiaperLogResponse } from '../types';
@@ -31,14 +32,16 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     
     const timeUTC = toUTC(body.time);
     
-    const diaperLog = await prisma.diaperLog.create({
+    const { record: diaperLog, created } = await createReplaySafeActivity(req, prisma.diaperLog, userFamilyId, body.babyId, (id, timestamp) => prisma.diaperLog.create({
       data: {
-        ...body,
+        ...(id ? { id } : {}),
+        ...(timestamp ? { createdAt: timestamp, updatedAt: timestamp } : {}),
+        babyId: body.babyId, type: body.type, condition: body.condition, color: body.color, blowout: body.blowout, creamApplied: body.creamApplied, notes: body.notes,
         time: timeUTC,
         caretakerId: caretakerId,
         familyId: userFamilyId,
       },
-    });
+    }));
 
     // Format dates as ISO strings for response
     const response: DiaperLogResponse = {
@@ -50,14 +53,16 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     };
 
     // Notify subscribers about activity creation (non-blocking)
-    notifyActivityCreated(diaperLog.babyId, 'diaper', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { type: body.type }).catch(console.error);
-    resetTimerNotificationState(diaperLog.babyId, 'diaper').catch(console.error);
+    if (created) notifyActivityCreated(diaperLog.babyId, 'diaper', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { type: body.type }).catch(console.error);
+    if (created) resetTimerNotificationState(diaperLog.babyId, 'diaper').catch(console.error);
 
     return NextResponse.json<ApiResponse<DiaperLogResponse>>({
       success: true,
       data: response,
-    });
+    }, { headers: { 'X-Offline-Replay': created ? 'false' : 'true' } });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error creating diaper log:', error);
     return NextResponse.json<ApiResponse<DiaperLogResponse>>(
       {
@@ -110,17 +115,21 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       );
     }
 
-    // Convert time to UTC if provided and strip relation fields
-    const data: any = { ...body };
-    if (body.time) {
-      data.time = toUTC(body.time);
-    }
-    delete data.babyId;
-    delete data.familyId;
-    delete data.caretakerId;
+    requireActiveActivity(existingDiaperLog);
+    const offlineVersion = offlineMutationVersion(req, existingDiaperLog);
+
+    const data = {
+      ...(body.time !== undefined ? { time: toUTC(body.time) } : {}),
+      ...(body.type !== undefined ? { type: body.type } : {}),
+      ...(body.condition !== undefined ? { condition: body.condition } : {}),
+      ...(body.color !== undefined ? { color: body.color } : {}),
+      ...(body.blowout !== undefined ? { blowout: body.blowout } : {}),
+      ...(body.creamApplied !== undefined ? { creamApplied: body.creamApplied } : {}),
+      ...(body.notes !== undefined ? { notes: body.notes } : {}),
+    };
 
     const diaperLog = await prisma.diaperLog.update({
-      where: { id },
+      where: { id, familyId: userFamilyId, deletedAt: null, ...(offlineVersion ? { updatedAt: offlineVersion } : {}) },
       data,
     });
 
@@ -138,6 +147,8 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error updating diaper log:', error);
     return NextResponse.json<ApiResponse<DiaperLogResponse>>(
       {
@@ -164,7 +175,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
 
     if (id) {
       const diaperLog = await prisma.diaperLog.findFirst({
-        where: { id, familyId: userFamilyId },
+        where: { id, familyId: userFamilyId, deletedAt: null },
       });
 
       if (!diaperLog) {
@@ -194,6 +205,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
 
     const diaperLogs = await prisma.diaperLog.findMany({
       where: {
+        deletedAt: null,
         familyId: userFamilyId,
         ...(babyId && { babyId }),
         ...(startDate && endDate && {
@@ -222,6 +234,8 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error fetching diaper logs:', error);
     return NextResponse.json<ApiResponse<DiaperLogResponse[]>>(
       {
@@ -259,28 +273,14 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
       );
     }
 
-    const existingDiaperLog = await prisma.diaperLog.findFirst({
-      where: { id, familyId: userFamilyId },
-    });
-
-    if (!existingDiaperLog) {
-      return NextResponse.json<ApiResponse<void>>(
-        {
-          success: false,
-          error: 'Diaper log not found or access denied',
-        },
-        { status: 404 }
-      );
-    }
-
-    await prisma.diaperLog.delete({
-      where: { id },
-    });
+    await softDeleteActivity(req, prisma.diaperLog, userFamilyId, id);
 
     return NextResponse.json<ApiResponse<void>>({
       success: true,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error deleting diaper log:', error);
     return NextResponse.json<ApiResponse<void>>(
       {

@@ -1,4 +1,5 @@
 'use client';
+import { decodeJwtPayloadPart } from '@/src/utils/jwt-payload';
 
 import { Suspense, useEffect, useState, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
@@ -8,6 +9,8 @@ import { useFamily } from '@/src/context/family';
 import { useLocalization } from '@/src/context/localization';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
 import { FamilyResponse } from '@/app/api/types';
+import { canUseOfflineFamily, offlineScopeMatches } from '@/src/lib/offline/session';
+import { refreshAuthToken, refreshFailureIsTransient } from '@/src/utils/session-timeout';
 import { familyStateRedirect, validateFamilySlugWithRetry } from '@/src/utils/session-timeout';
 
 function FamilySlugPageContent() {
@@ -27,6 +30,7 @@ function FamilySlugPageContent() {
   // Validate family slug exists first
   useEffect(() => {
     const validateSlug = async () => {
+      if (canUseOfflineFamily(familySlug)) { setSlugValidated(true); return; }
       if (!familySlug) {
         setSlugValidated(true);
         return;
@@ -43,6 +47,7 @@ function FamilySlugPageContent() {
         return;
       }
 
+      if (outcome === 'transient' && offlineScopeMatches(localStorage, familySlug)) { setSlugValidated(true); return; }
       if (outcome === 'transient') {
         // Network/server hiccup — stay on the validating state instead of
         // bouncing to home; a reload retries
@@ -88,7 +93,8 @@ function FamilySlugPageContent() {
 
     setIsCheckingAuth(true);
 
-    const checkAuth = () => {
+    const checkAuth = async () => {
+      if (new URLSearchParams(window.location.search).get('reauth') === 'true') { setIsAuthenticated(false); setIsCheckingAuth(false); return; }
       const authToken = localStorage.getItem('authToken');
       const unlockTime = localStorage.getItem('unlockTime');
 
@@ -98,12 +104,14 @@ function FamilySlugPageContent() {
       if (authToken) {
         try {
           const payload = authToken.split('.')[1];
-          const decodedPayload = JSON.parse(atob(payload));
+          const decodedPayload = decodeJwtPayloadPart(payload);
           isAccountAuth = decodedPayload.isAccountAuth || false;
           isSysAdmin = decodedPayload.isSysAdmin || false;
 
           // Check if token has expired
-          if (decodedPayload.exp && decodedPayload.exp * 1000 < Date.now()) {
+          if (decodedPayload.exp && decodedPayload.exp * 1000 < Date.now() && !canUseOfflineFamily(familySlug)) {
+            const refreshed = await refreshAuthToken();
+            if (refreshed || (refreshFailureIsTransient() && offlineScopeMatches(localStorage, familySlug))) { setIsAuthenticated(true); setIsCheckingAuth(false); if (!hasRedirectedRef.current) { hasRedirectedRef.current=true; window.location.href=`/${familySlug}/log-entry`; } return; }
             // Token expired, clear it
             localStorage.removeItem('authToken');
             localStorage.removeItem('unlockTime');
@@ -159,7 +167,7 @@ function FamilySlugPageContent() {
     if (authToken) {
       try {
         const payload = authToken.split('.')[1];
-        isSysAdmin = JSON.parse(atob(payload)).isSysAdmin || false;
+        isSysAdmin = decodeJwtPayloadPart(payload).isSysAdmin || false;
       } catch (error) {
         // Ignore parsing errors
       }

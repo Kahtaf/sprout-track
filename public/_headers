@@ -1,0 +1,6 @@
+/sw.js
+  Cache-Control: no-cache
+  Service-Worker-Allowed: /
+
+/offline-engine.js
+  Cache-Control: no-cache

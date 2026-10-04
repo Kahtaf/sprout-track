@@ -385,6 +385,7 @@ export const SideNav: React.FC<SideNavProps> = ({
                 <div className="flex items-center">
                   <Image
                     src="/sprout-128.png"
+                          unoptimized
                     alt="Sprout Logo"
                     width={40}
                     height={40}

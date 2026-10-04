@@ -279,19 +279,7 @@ const TimelineV2 = ({ babyId, refreshTrigger, initialDate, feedTimerTypes, onLat
     }
   }, []);
 
-  useEffect(() => {
-    refreshSettings();
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refreshSettings();
-    };
-    window.addEventListener('focus', refreshSettings);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.removeEventListener('focus', refreshSettings);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [refreshSettings]);
+  useEffect(() => { void refreshSettings(); }, [refreshSettings]);
 
   // Initial fetch when babyId changes
   useEffect(() => {
@@ -327,40 +315,22 @@ const TimelineV2 = ({ babyId, refreshTrigger, initialDate, feedTimerTypes, onLat
     }
   }, [isHeatmapVisible, selectedDate, babyId]);
 
-  // Single polling loop — replaces both parent and child polling
+  // Refresh foreground/data changes in place; never remount an open edit draft.
   useEffect(() => {
-    if (!babyId) return;
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refreshCurrentDay();
-      }
+    const refresh = (event: Event) => {
+      const detail=(event as CustomEvent).detail;
+      let familyId: string|null=null;
+      try {familyId=JSON.parse(localStorage.getItem('selectedFamily') || 'null')?.id;} catch {return;}
+      if (detail?.familyId && familyId && detail.familyId !== familyId) return;
+      activityCache.invalidateAll(detail?.foreground === true);
+      void fetchActivitiesForDate(selectedDate, false);
+      void refreshSettings();
+      if (babyId) void fetchBreastMilkBalance(babyId);
+      if (isHeatmapVisible) void fetchHeatmapData();
     };
-
-    const poll = setInterval(() => {
-      const idleThreshold = 5 * 60 * 1000; // 5 minutes
-      const activeRefreshRate = 30 * 1000; // 30 seconds
-
-      const idleTime = Date.now() - parseInt(localStorage.getItem('unlockTime') || `${Date.now()}`);
-      const isCurrentlyIdle = idleTime >= idleThreshold;
-      const timeSinceLastRefresh = Date.now() - lastRefreshTimestamp.current;
-
-      if (wasIdle.current && !isCurrentlyIdle) {
-        refreshCurrentDay();
-      } else if (!isCurrentlyIdle && timeSinceLastRefresh > activeRefreshRate) {
-        refreshCurrentDay();
-      }
-
-      wasIdle.current = isCurrentlyIdle;
-    }, 10000);
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      clearInterval(poll);
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [babyId, refreshCurrentDay]);
+    window.addEventListener('sprout-data-changed',refresh);
+    return () => window.removeEventListener('sprout-data-changed',refresh);
+  }, [babyId,selectedDate,fetchActivitiesForDate,refreshSettings,fetchBreastMilkBalance,isHeatmapVisible,fetchHeatmapData,activityCache]);
 
   const sortedActivities = useMemo(() => {
     // Filter out breast-milk-adjustment activities when tracking is disabled

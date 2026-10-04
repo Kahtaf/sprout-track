@@ -266,29 +266,18 @@ function HomeContent(): React.ReactElement {
 
   // Sleep status changes are now handled by handleLatestStatusReady callback from TimelineV2
 
-  // Poll only for active feed/activity status (timeline polling is handled by TimelineV2)
+  // Refresh active-session badges after the coalesced foreground server read.
+  // Timers and open drafts continue without remounting or background polling.
   useEffect(() => {
-    if (!selectedBaby?.id) return;
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        checkFeedStatus(selectedBaby.id);
-        checkActivityStatus(selectedBaby.id);
-      }
+    const refresh = () => {
+      if (!selectedBaby?.id || document.visibilityState !== 'visible' || navigator.onLine === false) return;
+      void checkFeedStatus(selectedBaby.id);
+      void checkActivityStatus(selectedBaby.id);
     };
+    window.addEventListener('sprout-data-changed',refresh);
+    return () => window.removeEventListener('sprout-data-changed',refresh);
+  }, [selectedBaby?.id,checkFeedStatus,checkActivityStatus]);
 
-    const poll = setInterval(() => {
-      checkFeedStatus(selectedBaby.id);
-      checkActivityStatus(selectedBaby.id);
-    }, 30000); // Check every 30 seconds
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      clearInterval(poll);
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [selectedBaby?.id, checkFeedStatus, checkActivityStatus]);
 
   // Active breastfeed action handlers
   const handleFeedSwitch = async () => {

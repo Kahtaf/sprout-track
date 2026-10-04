@@ -1,3 +1,4 @@
+import { createReplaySafeActivity, softDeleteActivity, requireActiveActivity, offlineMutationVersion, offlineWriteConflict, OfflineActivityError } from '@/prisma/offline-activity';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import { ApiResponse, SleepLogCreate, SleepLogResponse } from '../types';
@@ -37,16 +38,18 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     // Calculate duration if both start and end times are present
     const duration = endTimeUTC ? calculateDurationMinutes(startTimeUTC, endTimeUTC) : undefined;
 
-    const sleepLog = await prisma.sleepLog.create({
+    const { record: sleepLog, created } = await createReplaySafeActivity(req, prisma.sleepLog, userFamilyId, body.babyId, (id, timestamp) => prisma.sleepLog.create({
       data: {
-        ...body,
+        ...(id ? { id } : {}),
+        ...(timestamp ? { createdAt: timestamp, updatedAt: timestamp } : {}),
+        babyId: body.babyId, type: body.type, location: body.location, quality: body.quality, notes: body.notes,
         startTime: startTimeUTC,
         ...(endTimeUTC && { endTime: endTimeUTC }),
         duration,
         caretakerId: caretakerId,
         familyId: userFamilyId,
       },
-    });
+    }));
 
     // Format dates as ISO strings for response
     const response: SleepLogResponse = {
@@ -59,13 +62,15 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     };
 
     // Notify subscribers about activity creation (non-blocking)
-    notifyActivityCreated(sleepLog.babyId, 'sleep', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { type: body.type }).catch(console.error);
+    if (created) notifyActivityCreated(sleepLog.babyId, 'sleep', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { type: body.type }).catch(console.error);
 
     return NextResponse.json<ApiResponse<SleepLogResponse>>({
       success: true,
       data: response,
-    });
+    }, { headers: { 'X-Offline-Replay': created ? 'false' : 'true' } });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error creating sleep log:', error);
     return NextResponse.json<ApiResponse<SleepLogResponse>>(
       {
@@ -118,6 +123,9 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       );
     }
 
+    requireActiveActivity(existingSleepLog);
+    const offlineVersion = offlineMutationVersion(req, existingSleepLog);
+
     // Convert times to UTC for storage
     const startTimeUTC = body.startTime ? toUTC(body.startTime) : undefined;
     const endTimeUTC = body.endTime ? toUTC(body.endTime) : undefined;
@@ -128,9 +136,13 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       : undefined;
 
     const sleepLog = await prisma.sleepLog.update({
-      where: { id },
+      where: { id, familyId: userFamilyId, deletedAt: null, ...(offlineVersion ? { updatedAt: offlineVersion } : {}) },
       data: {
-        ...body,
+        ...(body.type !== undefined ? { type: body.type } : {}),
+        ...(body.location !== undefined ? { location: body.location } : {}),
+        ...(body.quality !== undefined ? { quality: body.quality } : {}),
+        ...(body.notes !== undefined ? { notes: body.notes } : {}),
+        ...(body.duration !== undefined ? { duration: body.duration } : {}),
         ...(startTimeUTC && { startTime: startTimeUTC }),
         ...(endTimeUTC && { endTime: endTimeUTC }),
         ...(duration !== undefined && { duration }),
@@ -157,6 +169,8 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error updating sleep log:', error);
     return NextResponse.json<ApiResponse<SleepLogResponse>>(
       {
@@ -235,6 +249,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
     }
     
     const queryParams: any = {
+      deletedAt: null,
       familyId: userFamilyId,
       ...(babyId && { babyId }),
       ...(startDate && endDate && {
@@ -247,7 +262,8 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
 
     if (id) {
       const sleepLog = await prisma.sleepLog.findFirst({
-        where: { 
+        where: {
+          deletedAt: null,
           id,
           familyId: userFamilyId,
         },
@@ -301,6 +317,8 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error fetching sleep logs:', error);
     return NextResponse.json<ApiResponse<SleepLogResponse[]>>(
       {
@@ -338,28 +356,14 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
       );
     }
 
-    const existingSleepLog = await prisma.sleepLog.findFirst({
-      where: { id, familyId: userFamilyId },
-    });
-
-    if (!existingSleepLog) {
-      return NextResponse.json<ApiResponse<void>>(
-        {
-          success: false,
-          error: 'Sleep log not found or access denied',
-        },
-        { status: 404 }
-      );
-    }
-
-    await prisma.sleepLog.delete({
-      where: { id },
-    });
+    await softDeleteActivity(req, prisma.sleepLog, userFamilyId, id);
 
     return NextResponse.json<ApiResponse<void>>({
       success: true,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error deleting sleep log:', error);
     return NextResponse.json<ApiResponse<void>>(
       {

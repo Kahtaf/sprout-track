@@ -1,3 +1,4 @@
+import { createReplaySafeActivity, softDeleteActivity, requireActiveActivity, offlineMutationVersion, offlineWriteConflict, OfflineActivityError } from '@/prisma/offline-activity';
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../db';
 import { ApiResponse, NoteCreate, NoteResponse } from '../types';
@@ -32,8 +33,10 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     // Convert time to UTC for storage
     const timeUTC = toUTC(body.time);
     
-    const note = await prisma.note.create({
+    const { record: note, created } = await createReplaySafeActivity(req, prisma.note, userFamilyId, body.babyId, (id, timestamp) => prisma.note.create({
       data: {
+        ...(id ? { id } : {}),
+        ...(timestamp ? { createdAt: timestamp, updatedAt: timestamp } : {}),
         babyId: body.babyId,
         content: body.content,
         category: body.category,
@@ -41,10 +44,10 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
         caretakerId: caretakerId,
         familyId: userFamilyId,
       },
-    });
+    }));
 
     // Notify subscribers about note creation (non-blocking)
-    notifyActivityCreated(note.babyId, 'note', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { content: body.content }).catch(console.error);
+    if (created) notifyActivityCreated(note.babyId, 'note', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { content: body.content }).catch(console.error);
 
     // Format dates as ISO strings for response
     const response: NoteResponse = {
@@ -58,8 +61,10 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     return NextResponse.json<ApiResponse<NoteResponse>>({
       success: true,
       data: response,
-    });
+    }, { headers: { 'X-Offline-Replay': created ? 'false' : 'true' } });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error creating note:', error);
     return NextResponse.json<ApiResponse<NoteResponse>>(
       {
@@ -115,6 +120,9 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       );
     }
 
+    requireActiveActivity(existingNote);
+    const offlineVersion = offlineMutationVersion(req, existingNote);
+
     // Only editable note fields may cross the API boundary. Ownership, IDs,
     // soft-delete state, and nested Prisma operations are never client input.
     if (body.babyId !== undefined) {
@@ -131,9 +139,7 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
     };
 
     const note = await prisma.note.update({
-      where: {
-        id,
-      },
+      where: { id, familyId: userFamilyId, deletedAt: null, ...(offlineVersion ? { updatedAt: offlineVersion } : {}) },
       data,
     });
 
@@ -151,6 +157,8 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error updating note:', error);
     return NextResponse.json<ApiResponse<NoteResponse>>(
       {
@@ -202,6 +210,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
     }
 
     const queryParams = {
+      deletedAt: null,
       familyId: userFamilyId,
       ...(babyId && { babyId }),
       ...(startDate && endDate && {
@@ -214,7 +223,8 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
 
     if (id) {
       const note = await prisma.note.findFirst({
-        where: { 
+        where: {
+          deletedAt: null,
           id,
           familyId: userFamilyId,
         },
@@ -266,6 +276,8 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error fetching notes:', error);
     return NextResponse.json<ApiResponse<NoteResponse[]>>(
       {
@@ -303,33 +315,14 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
       );
     }
 
-    const existingNote = await prisma.note.findFirst({
-      where: { 
-        id,
-        familyId: userFamilyId,
-      },
-    });
-
-    if (!existingNote) {
-      return NextResponse.json<ApiResponse<void>>(
-        {
-          success: false,
-          error: 'Note not found or access denied',
-        },
-        { status: 404 }
-      );
-    }
-
-    await prisma.note.delete({
-      where: { 
-        id,
-      },
-    });
+    await softDeleteActivity(req, prisma.note, userFamilyId, id);
 
     return NextResponse.json<ApiResponse<void>>({
       success: true,
     });
   } catch (error) {
+    if (offlineWriteConflict(error, req)) return NextResponse.json({ success: false, error: 'This activity changed while offline. Review the queued change.' }, { status: 409 });
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     console.error('Error deleting note:', error);
     return NextResponse.json<ApiResponse<void>>(
       {

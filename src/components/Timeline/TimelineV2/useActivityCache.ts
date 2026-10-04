@@ -62,6 +62,7 @@ function buildDateRange(centerDate: Date, radius: number): { startDate: Date; en
 
 export function useActivityCache() {
   const cache = useRef<Map<string, CacheEntry>>(new Map());
+  const freshNextRead = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const heatmapCache = useRef<{ activities: ActivityType[]; fetchedAt: number; windowKey: string } | null>(null);
 
@@ -97,10 +98,12 @@ export function useActivityCache() {
     }
 
     const authToken = localStorage.getItem('authToken');
+    const foreground = freshNextRead.current; freshNextRead.current = false;
     const response = await fetch(url, {
       cache: 'no-store',
       signal,
       headers: {
+        ...(foreground ? {'X-Sprout-Refresh':'foreground'} : {}),
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Expires': '0',
@@ -205,7 +208,8 @@ export function useActivityCache() {
     cache.current.delete(toDateKey(date));
   }, []);
 
-  const invalidateAll = useCallback(() => {
+  const invalidateAll = useCallback((foreground = false) => {
+    if (foreground) freshNextRead.current = true;
     cache.current.clear();
     heatmapCache.current = null;
   }, []);

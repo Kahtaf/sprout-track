@@ -12,7 +12,7 @@ describe('historical note family isolation',()=>{
  it('edits content while stripping ownership, IDs and nested writes',async()=>{
   const response=await PUT(request({content:'Edited history',id:'changed-id',familyId:'other',caretakerId:'other',deletedAt:'2026-01-01',baby:{connect:{id:'other'}}}));
   expect(response.status).toBe(200);
-  expect(mocks.note.update).toHaveBeenCalledWith({where:{id:'note'},data:{content:'Edited history'}});
+  expect(mocks.note.update).toHaveBeenCalledWith({where:{id:'note',familyId:'family',deletedAt:null},data:{content:'Edited history'}});
  });
  it('rejects a baby outside the authenticated family before updating',async()=>{
   mocks.baby.findFirst.mockResolvedValue(null);
@@ -22,6 +22,6 @@ describe('historical note family isolation',()=>{
  it('allows moving a note to another live baby owned by the same family',async()=>{
   mocks.baby.findFirst.mockResolvedValue({id:'second-baby',familyId:'family'});
   const response=await PUT(request({babyId:'second-baby',content:'Edited'}));
-  expect(response.status).toBe(200);expect(mocks.note.update).toHaveBeenCalledWith({where:{id:'note'},data:{babyId:'second-baby',content:'Edited'}});
+  expect(response.status).toBe(200);expect(mocks.note.update).toHaveBeenCalledWith({where:{id:'note',familyId:'family',deletedAt:null},data:{babyId:'second-baby',content:'Edited'}});
  });
 });

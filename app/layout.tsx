@@ -4,6 +4,7 @@ import { Metadata } from 'next';
 import { LocalizationProvider } from '@/src/context/localization';
 import { TimezoneProvider } from '@/app/context/timezone';
 import { APPLE_TOUCH_ICON } from '@/src/utils/pwa-icons';
+import { PwaServiceWorker } from '@/src/components/PwaServiceWorker';
 import './globals.css';
 
 export const viewport = {
@@ -14,71 +15,13 @@ export const viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NODE_ENV === 'production' ? 'https://www.sprout-track.com' : 'http://localhost:3000'),
+  metadataBase: new URL('https://baby.kahtaf.com'),
   title: 'Sprout Track',
-  icons: {
-    icon: '/sprout-128.png',
-    shortcut: '/sprout-128.png',
-    apple: APPLE_TOUCH_ICON,
-  },
-  description: 'Track your baby\'s sleep, feeding, diapers, milestones, and more with our intuitive, family-friendly platform. Simple to use, privacy-focused, accessible anywhere. Start your 14 day trial today!',
-  keywords: [
-    'baby tracker',
-    'baby tracking app', 
-    'infant care',
-    'baby feeding tracker',
-    'baby sleep tracker',
-    'diaper tracker',
-    'baby milestones',
-    'newborn care',
-    'baby care app',
-    'family tracking',
-    'caretaker coordination',
-    'baby activities',
-    'parenting tools'
-  ],
-  authors: [{ name: 'Oak and Sprout' }],
-  creator: 'Oak and Sprout',
-  publisher: 'Oak and Sprout',
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      'max-video-preview': -1,
-      'max-image-preview': 'large',
-      'max-snippet': -1,
-    },
-  },
-  openGraph: {
-    type: 'website',
-    locale: 'en_US',
-    url: 'https://www.sprout-track.com',
-    title: 'Sprout Track - The Shareable Baby Tracking Solution',
-    description: 'Track your baby\'s sleep, feeding, diapers, milestones, and more with our intuitive, family-friendly platform. Simple to use, privacy-focused, accessible anywhere.',
-    siteName: 'Sprout Track',
-    images: [
-      {
-        url: '/sprout-256.png',
-        width: 256,
-        height: 256,
-        alt: 'Sprout Track Logo - Baby Tracking App',
-      },
-    ],
-  },
-  verification: {
-    google: '', // Add Google Search Console verification code when available
-  },
-  alternates: {
-    canonical: 'https://www.sprout-track.com',
-  },
+  description: 'Private family baby tracker for feeding, diapers, sleep and growth.',
+  icons: { icon: '/sprout-128.png', shortcut: '/sprout-128.png', apple: APPLE_TOUCH_ICON },
+  robots: { index: false, follow: false, noarchive: true },
   manifest: '/manifest.json',
-  other: {
-    'apple-mobile-web-app-capable': 'yes',
-    'apple-mobile-web-app-status-bar-style': 'black-translucent',
-  },
-  category: 'technology',
+  other: { 'apple-mobile-web-app-capable': 'yes', 'apple-mobile-web-app-status-bar-style': 'black-translucent' },
 };
 
 const fontSans = FontSans({
@@ -98,6 +41,7 @@ export default function RootLayout({
       <body className={cn('min-h-full bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 font-sans antialiased')} suppressHydrationWarning>
         <LocalizationProvider>
           <TimezoneProvider>
+            <PwaServiceWorker />
             {children}
           </TimezoneProvider>
         </LocalizationProvider>

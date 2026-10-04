@@ -27,7 +27,7 @@ function FullLogPage() {
   const [endDate, setEndDate] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(false);
 
-  const refreshActivities = useCallback(async () => {
+  const refreshActivities = useCallback(async (forceFresh = false) => {
     if (!selectedBaby?.id) return;
 
     setIsLoading(true);
@@ -49,9 +49,11 @@ function FullLogPage() {
 
       const authToken = localStorage.getItem('authToken');
       const response = await fetch(url, {
-        headers: authToken ? {
-          'Authorization': `Bearer ${authToken}`
-        } : {}
+        cache: 'no-store',
+        headers: {
+          ...(authToken ? {'Authorization': `Bearer ${authToken}`} : {}),
+          ...(forceFresh ? {'X-Sprout-Refresh':'foreground'} : {}),
+        }
       });
       const data = await response.json();
       if (data.success) {
@@ -68,6 +70,18 @@ function FullLogPage() {
   React.useEffect(() => {
     refreshActivities();
   }, [refreshActivities]);
+
+  // Shared caregiver updates refresh the selected range in place. Date filters
+  // and any open FullLogTimeline edit form remain mounted.
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const detail=(event as CustomEvent).detail;
+      if (detail?.familyId && family?.id && detail.familyId !== family.id) return;
+      void refreshActivities(detail?.foreground === true);
+    };
+    window.addEventListener('sprout-data-changed',refresh);
+    return () => window.removeEventListener('sprout-data-changed',refresh);
+  }, [family?.id,refreshActivities]);
 
   const handleDateRangeChange = (newStartDate: Date, newEndDate: Date) => {
     setStartDate(newStartDate);

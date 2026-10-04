@@ -1,3 +1,4 @@
+import { createReplaySafeActivity, offlineRequestId, requireActiveActivity, offlineMutationVersion, OfflineActivityError } from '@/prisma/offline-activity';
 import { randomUUID } from 'node:crypto';
 import { executeWriteBatch, insertRow, updateRows, deleteRows, snapshotGuard, D1ConflictError } from '@/prisma/d1-batch';
 import { NextRequest, NextResponse } from 'next/server';
@@ -77,9 +78,10 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     });
     const trackingEnabled = familySettings?.enableBreastMilkTracking !== false;
 
-    const pumpId = randomUUID();
+    const { record: pumpLog, created } = await createReplaySafeActivity(req, prisma.pumpLog, userFamilyId, body.babyId, async (offlineId, timestamp) => {
+    const pumpId = offlineId ?? randomUUID();
     const plans = [insertRow('PumpLog', {
-      id: pumpId, babyId: body.babyId, startTime: startTimeUTC,
+      id: pumpId, ...(timestamp ? { createdAt: timestamp, updatedAt: timestamp } : {}), babyId: body.babyId, startTime: startTimeUTC,
       endTime: endTimeUTC, duration,
       durationSeconds: body.duration !== undefined ? body.duration * 60
         : startTimeUTC && endTimeUTC ? Math.round((endTimeUTC.getTime() - startTimeUTC.getTime()) / 1000) : null,
@@ -96,7 +98,8 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
       }));
     }
     await executeWriteBatch(plans);
-    const pumpLog = await prisma.pumpLog.findUniqueOrThrow({ where: { id: pumpId } });
+    return prisma.pumpLog.findUniqueOrThrow({ where: { id: pumpId } });
+    });
 
     // Format dates as ISO strings for response
     const response: PumpLogResponse = {
@@ -109,13 +112,14 @@ async function handlePost(req: NextRequest, authContext: AuthResult) {
     };
 
     // Notify subscribers about activity creation (non-blocking)
-    notifyActivityCreated(pumpLog.babyId, 'pump', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { totalAmount, unitAbbr }).catch(console.error);
+    if (created) notifyActivityCreated(pumpLog.babyId, 'pump', { accountId: authContext.accountId, caretakerId: authContext.caretakerId }, { totalAmount, unitAbbr }).catch(console.error);
 
     return NextResponse.json<ApiResponse<PumpLogResponse>>({
       success: true,
       data: response,
-    });
+    }, { headers: { 'X-Offline-Replay': created ? 'false' : 'true' } });
   } catch (error) {
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error creating pump log:', error);
     return NextResponse.json<ApiResponse<PumpLogResponse>>(
@@ -168,6 +172,9 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
         { status: 404 }
       );
     }
+    requireActiveActivity(existingPumpLog);
+    offlineMutationVersion(req, existingPumpLog);
+
 
     // If the caller is reassigning the pump to a baby, that baby must belong to
     // their family — never trust a client-sent babyId across families.
@@ -330,6 +337,7 @@ async function handlePut(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error updating pump log:', error);
     return NextResponse.json<ApiResponse<PumpLogResponse>>(
@@ -356,6 +364,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
     const endDate = searchParams.get('endDate');
     
     const queryParams: any = {
+      deletedAt: null,
       familyId: userFamilyId,
       ...(babyId && { babyId }),
     };
@@ -371,7 +380,8 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
     // If ID is provided, fetch a single pump log
     if (id) {
       const pumpLog = await prisma.pumpLog.findFirst({
-        where: { 
+        where: {
+          deletedAt: null,
           id,
           familyId: userFamilyId,
         },
@@ -426,6 +436,7 @@ async function handleGet(req: NextRequest, authContext: AuthResult) {
       data: response,
     });
   } catch (error) {
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error fetching pump logs:', error);
     return NextResponse.json<ApiResponse<PumpLogResponse[]>>(
@@ -464,11 +475,16 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
       );
     }
 
+    const offlineId = offlineRequestId(req);
     const existingPumpLog = await prisma.pumpLog.findFirst({
       where: { id, familyId: userFamilyId },
     });
 
     if (!existingPumpLog) {
+      if (offlineId && !(await prisma.pumpLog.findUnique({ where: { id } }))) {
+        return NextResponse.json({ success: true });
+      }
+
       return NextResponse.json<ApiResponse<void>>(
         {
           success: false,
@@ -477,6 +493,9 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
         { status: 404 }
       );
     }
+
+    if (existingPumpLog.deletedAt) return NextResponse.json({ success: true });
+    offlineMutationVersion(req, existingPumpLog);
 
     const plans = [snapshotGuard('PumpLog', '"id" = ? AND "familyId" = ? AND "totalAmount" IS ? AND "pumpAction" = ? AND "unitAbbr" IS ? AND "notes" IS ? AND "babyId" = ? AND "updatedAt" = ? AND "startTime" = ? AND "endTime" IS ? AND "duration" IS ? AND "durationSeconds" IS ? AND "leftAmount" IS ? AND "rightAmount" IS ?', [id, userFamilyId, existingPumpLog.totalAmount, existingPumpLog.pumpAction, existingPumpLog.unitAbbr, existingPumpLog.notes, existingPumpLog.babyId, existingPumpLog.updatedAt, existingPumpLog.startTime, existingPumpLog.endTime, existingPumpLog.duration, existingPumpLog.durationSeconds, existingPumpLog.leftAmount, existingPumpLog.rightAmount])];
     const linkedAutoFeed = await prisma.feedLog.findFirst({
@@ -509,16 +528,17 @@ async function handleDelete(req: NextRequest, authContext: AuthResult) {
 
     if (plan.action === 'delete') {
       for (const feedId of plan.deleteIds) {
-        plans.push(deleteRows('FeedLog', '"id" = ? AND "familyId" = ?', [feedId, userFamilyId]));
+        plans.push(updateRows('FeedLog', { deletedAt: new Date() }, '"id" = ? AND "familyId" = ?', [feedId, userFamilyId]));
       }
     }
 
-    plans.push(deleteRows('PumpLog', '"id" = ? AND "familyId" = ?', [id, userFamilyId]));
+    plans.push(updateRows('PumpLog', { deletedAt: new Date() }, '"id" = ? AND "familyId" = ?', [id, userFamilyId]));
     await executeWriteBatch(plans);
     return NextResponse.json<ApiResponse<void>>({
       success: true,
     });
   } catch (error) {
+    if (error instanceof OfflineActivityError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     if (error instanceof D1ConflictError) return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     console.error('Error deleting pump log:', error);
     return NextResponse.json<ApiResponse<void>>(

@@ -226,6 +226,7 @@ export default function LoginSecurity({ onUnlock, familySlug, familyName }: Logi
             >
               <Image
                 src="/sprout-128.png"
+                          unoptimized
                 alt="Sprout Logo"
                 width={40}
                 height={40}
