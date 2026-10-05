@@ -31,12 +31,11 @@ import { Loader2 } from 'lucide-react';
 import AccountExpirationBanner from '@/src/components/ui/account-expiration-banner';
 import NotificationSplashModal from '@/src/components/modals/NotificationSplashModal';
 import { canUseOfflineFamily, prepareOfflineLogout } from '@/src/lib/offline/session';
-import { refreshFailureIsTransient } from '@/src/utils/session-timeout';
+import { createSessionRefreshGate, refreshSession, refreshClientSessionSettings, type SessionRefreshOutcome } from '@/src/utils/session-timeout';
 import { checkPushSupport, checkSubscriptionStatus } from '@/src/lib/notifications/client';
 import { cacheDefaultBottleUnit } from '@/src/utils/defaultBottleUnit';
 import {
   logoutDestination,
-  refreshAuthToken,
   shouldIdleLogout,
   validateFamilySlugWithRetry,
 } from '@/src/utils/session-timeout';
@@ -113,6 +112,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
   const [paymentAccountStatus, setPaymentAccountStatus] = useState<any>(null);
   const familySlug = params?.slug as string;
   const isRefreshingRef = useRef(false);
+  const refreshGateRef = useRef(createSessionRefreshGate(refreshSession));
   const selectedBabyRef = useRef(selectedBaby);
   useEffect(() => { selectedBabyRef.current = selectedBaby; }, [selectedBaby]);
 
@@ -152,16 +152,16 @@ function AppContent({ children }: { children: React.ReactNode }) {
   }, [isUnlocked]);
 
   // Refresh the access token using the HTTP-only refresh token cookie
-  const refreshAccessToken = useCallback(async (): Promise<boolean> => {
-    if (isRefreshingRef.current) return false;
+  const refreshAccessToken = useCallback((): Promise<SessionRefreshOutcome> => {
+    // Every one-second expiry check joins the same pending request.
+    const pending = refreshGateRef.current.refresh();
     isRefreshingRef.current = true;
+    void pending.finally(() => { isRefreshingRef.current = false; });
+    return pending;
+  }, []);
 
-    try {
-      // Shared single-flight refresh (also used by the global 401 interceptor)
-      return await refreshAuthToken();
-    } finally {
-      isRefreshingRef.current = false;
-    }
+  useEffect(() => {
+    if (localStorage.getItem('authToken')) void refreshClientSessionSettings();
   }, []);
 
   // Function to calculate baby's age
@@ -603,8 +603,8 @@ function AppContent({ children }: { children: React.ReactNode }) {
           if (expiresAt < now) {
             // Token already expired — try refresh before logging out
             console.log('JWT token has expired, attempting refresh...');
-            refreshAccessToken().then(success => {
-              if (!success && !refreshFailureIsTransient()) {
+            refreshAccessToken().then(outcome => {
+              if (outcome.status === 'unauthorized') {
                 console.log('Refresh failed, logging out...');
                 handleLogout('logout-refresh-failed');
               }

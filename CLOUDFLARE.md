@@ -61,3 +61,9 @@ Device storage is subject to browser eviction. Keep the app's pending count at z
 ### Manifest discovery with streamed metadata
 
 The manifest link is an explicit direct child of the root HTML head. Family layout metadata must not override it: this runtime can stream route metadata into the body on the logged-in route, which Chromium ignores when discovering the install manifest. This personal deployment uses `/manifest.json` with a canonical `/my-family` launch URL and the existing family app identity. Verify exactly one head manifest link in the actual rendered log-entry HTML after changing layouts.
+
+### PIN session renewal
+
+Access tokens last 30 minutes and renew silently with a seven-day HTTP-only refresh cookie. Successful renewal extends that cookie for another seven days. Regular online use should therefore keep each device signed in; explicit sign-out, cleared browser storage, or seven days without renewal requires the PIN again.
+
+Concurrent expired-token checks join the same renewal request, including requests that take longer than the one-second session timer. Only a definitive authentication rejection ends the session; network failures preserve cached access and pending changes. The client defaults to seven days when optional timeout settings are unavailable and reloads those settings when the authenticated shell opens, correcting older thirty-minute fallbacks.

@@ -6,6 +6,7 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { X, Eye, EyeOff } from 'lucide-react';
 import { ApiResponse } from '@/app/api/types';
+import { refreshClientSessionSettings } from '@/src/utils/session-timeout';
 import { rememberOnlineFamily } from '@/src/lib/offline/session';
 import { normalizePinEntry } from '@/src/utils/pin-entry';
 import { useLocalization } from '@/src/context/localization';
@@ -297,19 +298,8 @@ export default function PinLogin({
         localStorage.setItem('authToken', data.data.token);
         rememberOnlineFamily(data.data.token);
 
-        // Get the AUTH_LIFE and IDLE_TIME values for client-side timeout checks
-        const authLifeResponse = await fetch('/api/settings/auth-life');
-        const authLifeData = await authLifeResponse.json();
-        if (authLifeData.success) {
-          localStorage.setItem('authLifeSeconds', authLifeData.data.toString());
-        }
-
-        // Get the IDLE_TIME value
-        const idleTimeResponse = await fetch('/api/settings/idle-time');
-        const idleTimeData = await idleTimeResponse.json();
-        if (idleTimeData.success) {
-          localStorage.setItem('idleTimeSeconds', idleTimeData.data.toString());
-        }
+        // Optional settings cannot turn successful authentication into a failure.
+        void refreshClientSessionSettings();
         // Call the onUnlock callback
         onUnlock(data.data.id);
       } else {

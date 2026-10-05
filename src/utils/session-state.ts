@@ -1,3 +1,4 @@
+import { decodeJwtPayloadPart } from '@/src/utils/jwt-payload';
 /**
  * The single answer to "is this session unlocked?", shared by the app's own
  * unlock state and by the native relock gate.
@@ -26,7 +27,7 @@ export function isSessionUnlocked(input: {
   let isAccountAuth = false;
   let isSysAdmin = false;
   try {
-    const payload = JSON.parse(atob(authToken.split('.')[1]));
+    const payload = decodeJwtPayloadPart(authToken.split('.')[1]);
     isAccountAuth = payload.isAccountAuth || false;
     isSysAdmin = payload.isSysAdmin || false;
   } catch {

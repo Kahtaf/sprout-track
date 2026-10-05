@@ -10,7 +10,7 @@ import { useLocalization } from '@/src/context/localization';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/src/components/ui/select';
 import { FamilyResponse } from '@/app/api/types';
 import { canUseOfflineFamily, offlineScopeMatches } from '@/src/lib/offline/session';
-import { refreshAuthToken, refreshFailureIsTransient } from '@/src/utils/session-timeout';
+import { refreshSession } from '@/src/utils/session-timeout';
 import { familyStateRedirect, validateFamilySlugWithRetry } from '@/src/utils/session-timeout';
 
 function FamilySlugPageContent() {
@@ -110,8 +110,17 @@ function FamilySlugPageContent() {
 
           // Check if token has expired
           if (decodedPayload.exp && decodedPayload.exp * 1000 < Date.now() && !canUseOfflineFamily(familySlug)) {
-            const refreshed = await refreshAuthToken();
-            if (refreshed || (refreshFailureIsTransient() && offlineScopeMatches(localStorage, familySlug))) { setIsAuthenticated(true); setIsCheckingAuth(false); if (!hasRedirectedRef.current) { hasRedirectedRef.current=true; window.location.href=`/${familySlug}/log-entry`; } return; }
+            const refreshOutcome = await refreshSession();
+            if (refreshOutcome.status === 'refreshed' ||
+                (refreshOutcome.status === 'transient' && offlineScopeMatches(localStorage, familySlug))) {
+              setIsAuthenticated(true);
+              setIsCheckingAuth(false);
+              if (!hasRedirectedRef.current) {
+                hasRedirectedRef.current = true;
+                window.location.href = `/${familySlug}/log-entry`;
+              }
+              return;
+            }
             // Token expired, clear it
             localStorage.removeItem('authToken');
             localStorage.removeItem('unlockTime');

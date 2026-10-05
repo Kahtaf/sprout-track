@@ -9,8 +9,8 @@ import { rememberOnlineFamily, syncOfflineSession } from '@/src/lib/offline/sess
  * (tests/session-timeout.test.ts).
  */
 
-/** Client-side fallback when no idle time has been stored (matches historical behavior). */
-export const DEFAULT_IDLE_TIME_SECONDS = 1800;
+/** Personal-family fallback matches the seven-day refresh inactivity window. */
+export const DEFAULT_IDLE_TIME_SECONDS = 7 * 24 * 60 * 60;
 
 /** Parse the localStorage `idleTimeSeconds` value, falling back to the default for missing/invalid values. */
 export function parseIdleTimeSeconds(raw: string | null | undefined): number {
@@ -219,52 +219,96 @@ export async function validateFamilySlugWithRetry(
 // Single in-flight refresh shared by every caller (the layout's expiry check
 // and the global 401 interceptor) so parallel 401s trigger exactly one
 // POST /api/auth/refresh-token.
-let inFlightRefresh: Promise<boolean> | null = null;
-let refreshFailure: 'none'|'transient'|'unauthorized' = 'none';
-export function refreshFailureIsTransient(): boolean { return refreshFailure === 'transient'; }
+export interface SessionRefreshOutcome {
+  status: 'refreshed' | 'transient' | 'unauthorized';
+}
 
-/**
- * Refresh the access token using the HTTP-only refresh token cookie and store
- * it in localStorage. Concurrent calls share one request. Pass the original
- * (un-intercepted) fetch when calling from a fetch interceptor.
- */
-export function refreshAuthToken(fetchFn: typeof fetch = fetch): Promise<boolean> {
+/** The layout timer must join an existing refresh, never report in-flight as failed. */
+export function createSessionRefreshGate(refresh: () => Promise<SessionRefreshOutcome>) {
+  let pending: Promise<SessionRefreshOutcome> | null = null;
+  return {
+    refresh(): Promise<SessionRefreshOutcome> {
+      if (!pending) {
+        pending = refresh().finally(() => { pending = null; });
+      }
+      return pending;
+    },
+    isRefreshing(): boolean {
+      return pending !== null;
+    },
+  };
+}
+
+let inFlightRefresh: Promise<SessionRefreshOutcome> | null = null;
+let refreshFailure: 'none' | 'transient' | 'unauthorized' = 'none';
+
+export function refreshFailureIsTransient(): boolean {
+  return refreshFailure === 'transient';
+}
+
+/** Immutable per-request outcome keeps a later refresh from changing an earlier decision. */
+export function refreshSession(fetchFn: typeof fetch = fetch): Promise<SessionRefreshOutcome> {
   if (inFlightRefresh) return inFlightRefresh;
-  inFlightRefresh = doRefresh(fetchFn).finally(() => {
-    inFlightRefresh = null;
-  });
+  inFlightRefresh = doRefresh(fetchFn).finally(() => { inFlightRefresh = null; });
   return inFlightRefresh;
 }
 
-async function doRefresh(fetchFn: typeof fetch): Promise<boolean> {
-  refreshFailure = 'none';
+/** Compatibility wrapper for external callers. Authentication decisions use refreshSession. */
+export async function refreshAuthToken(fetchFn: typeof fetch = fetch): Promise<boolean> {
+  const result = await refreshSession(fetchFn);
+  refreshFailure = result.status === 'refreshed' ? 'none' : result.status;
+  return result.status === 'refreshed';
+}
+
+async function doRefresh(fetchFn: typeof fetch): Promise<SessionRefreshOutcome> {
   try {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) { refreshFailure = 'transient'; return false; }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return { status: 'transient' };
+    }
     const response = await fetchFn('/api/auth/refresh-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
-
     if (response.ok) {
       const data = await response.json();
       if (data.success && data.data?.token) {
         localStorage.setItem('authToken', data.data.token);
         rememberOnlineFamily(data.data.token);
         syncOfflineSession();
-        // Reset unlock time for PIN-based users
         if (localStorage.getItem('unlockTime')) {
           localStorage.setItem('unlockTime', Date.now().toString());
         }
-        return true;
+        return { status: 'refreshed' };
       }
     }
-    refreshFailure = response.status === 401 || response.status === 403 ? 'unauthorized' : 'transient';
-    return false;
-  } catch (error) {
-    refreshFailure = 'transient';
-    console.error('Error refreshing access token:', error);
-    return false;
+    return {
+      status: response.status === 401 || response.status === 403 ? 'unauthorized' : 'transient',
+    };
+  } catch {
+    return { status: 'transient' };
   }
+}
+
+/** Session tuning is best effort and cannot undo a successful PIN authentication. */
+export async function refreshClientSessionSettings(fetchFn: typeof fetch = fetch): Promise<void> {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem('idleTimeSeconds', String(DEFAULT_IDLE_TIME_SECONDS));
+  const token = localStorage.getItem('authToken');
+  if (!token) return;
+  await Promise.allSettled([
+    ['idle-time', 'idleTimeSeconds'],
+    ['auth-life', 'authLifeSeconds'],
+  ].map(async ([path, key]) => {
+    const response = await fetchFn(`/api/settings/${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return;
+    const result = await response.json();
+    const seconds = Number(result.data);
+    if (result.success && Number.isFinite(seconds) && seconds > 0) {
+      localStorage.setItem(key, String(seconds));
+    }
+  }));
 }
 
 /** Test-only: clear the shared in-flight refresh promise. */

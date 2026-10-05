@@ -4,12 +4,11 @@ import { decodeJwtPayloadPart } from '@/src/utils/jwt-payload';
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import { syncOfflineSession } from '@/src/lib/offline/session';
-import { refreshFailureIsTransient } from '@/src/utils/session-timeout';
+import { refreshSession } from '@/src/utils/session-timeout';
 import { useDeployment } from '../../app/context/deployment';
 import {
   isRootSlugPath,
   loadFamilyBySlugWithRetry,
-  refreshAuthToken,
   should401AttemptRefresh,
 } from '@/src/utils/session-timeout';
 
@@ -251,12 +250,12 @@ export function FamilyProvider({ children, onLogout }: { children: ReactNode; on
         // On a 401 from an API call (excluding auth endpoints), attempt one
         // token refresh-and-retry before treating the session as over. A
         // resumed PWA can fire several requests with a stale token in parallel;
-        // refreshAuthToken shares a single in-flight refresh between them
+        // refreshSession shares a single in-flight refresh between them
         // (issue #209, candidate 2).
         if (response.status === 401 && should401AttemptRefresh(url)) {
-          const refreshed = await refreshAuthToken(originalFetch);
+          const refreshOutcome = await refreshSession(originalFetch);
 
-          if (refreshed) {
+          if (refreshOutcome.status === 'refreshed') {
             // Session is still alive — replay the original request once with the new token
             const newToken = localStorage.getItem('authToken');
             if (typeof args[0] === 'string') {
@@ -268,7 +267,7 @@ export function FamilyProvider({ children, onLogout }: { children: ReactNode; on
               retryOptions.headers = retryHeaders;
               response = await originalFetch(args[0], retryOptions);
             }
-          } else if (!refreshFailureIsTransient()) {
+          } else if (refreshOutcome.status === 'unauthorized') {
             // Refresh failed — the session is genuinely over, trigger logout.
             // BUT: Don't trigger logout if we're on the root slug page (login
             // page). The login page expects 401s and handles authentication.

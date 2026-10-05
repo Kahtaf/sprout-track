@@ -107,10 +107,10 @@ describe('shouldIdleLogout', () => {
     ).toBe(true);
   });
 
-  it('uses the 30-minute fallback when idleTimeSeconds is missing', () => {
+  it('uses the seven-day fallback when idleTimeSeconds is missing', () => {
     const base = { ...pinUser, idleTimeSeconds: null, now: NOW };
-    expect(shouldIdleLogout({ ...base, unlockTime: String(NOW - 1800_000) })).toBe(false);
-    expect(shouldIdleLogout({ ...base, unlockTime: String(NOW - 1800_001) })).toBe(true);
+    expect(shouldIdleLogout({ ...base, unlockTime: String(NOW - DEFAULT_IDLE_TIME_SECONDS * 1000) })).toBe(false);
+    expect(shouldIdleLogout({ ...base, unlockTime: String(NOW - DEFAULT_IDLE_TIME_SECONDS * 1000 - 1) })).toBe(true);
   });
 
   it('does nothing without an unlockTime or with a garbage unlockTime', () => {
