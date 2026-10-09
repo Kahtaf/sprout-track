@@ -773,6 +773,15 @@ const LogFoodTab: React.FC<LogFoodTabProps> = ({
             >
               {t('g')}
             </Button>
+            <Button
+              type="button"
+              variant={unit === 'ML' ? 'default' : 'outline'}
+              className="w-full"
+              onClick={() => setUnit('ML')}
+              disabled={isSubmitting}
+            >
+              {t('ml')}
+            </Button>
           </div>
         </div>
 

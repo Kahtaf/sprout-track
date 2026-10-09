@@ -79,7 +79,7 @@ export default function UserSettingsTab({
                 </SelectTrigger>
                 <SelectContent>
                   {units
-                    .filter(unit => ['TBSP', 'G'].includes(unit.unitAbbr))
+                    .filter(unit => ['TBSP', 'G', 'ML'].includes(unit.unitAbbr))
                     .map((unit) => (
                       <SelectItem key={unit.unitAbbr} value={unit.unitAbbr}>
                         {unitName(unit.unitName)} ({unitSymbol(unit.unitAbbr)})
