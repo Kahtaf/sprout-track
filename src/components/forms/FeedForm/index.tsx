@@ -92,7 +92,7 @@ export default function FeedForm({
     hadReaction: false,
     reactionDescription: '',
     reactionCause: '',
-    bottleType: '',
+    bottleType: 'Breast Milk',
     breastMilkAmount: '',
     formulaAmount: '',
     feedDuration: 0, // Duration in seconds for breastfeeding timer
@@ -100,6 +100,8 @@ export default function FeedForm({
     rightDuration: 0, // Duration in seconds for right breast
     activeBreast: '' as 'LEFT' | 'RIGHT' | '', // Currently active breast for timer
   });
+  const bottleTypeTouchedRef = useRef(false);
+  const lastBottleRequestRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   // Whether the user actually touched the date/time picker. If not, starting a
@@ -203,6 +205,7 @@ export default function FeedForm({
 
   const fetchLastAmount = async (type: FeedType) => {
     if (!babyId) return;
+    const requestId = ++lastBottleRequestRef.current;
     
     try {
       const authToken = localStorage.getItem('authToken');
@@ -214,14 +217,21 @@ export default function FeedForm({
       if (!response.ok) return;
       
       const data = await response.json();
-      if (data.success && data.data?.amount) {
-        const lastBottleType = data.data.bottleType || '';
+      if (requestId !== lastBottleRequestRef.current) return;
+      if (data.success && data.data) {
+        const lastBottleType = data.data.bottleType;
         const lastBmAmount = data.data.breastMilkAmount;
+        const hasAmount = data.data.amount != null;
         setFormData(prev => ({
           ...prev,
-          amount: data.data.amount.toString(),
-          unit: data.data.unitAbbr || prev.unit,
-          ...(lastBottleType === 'Formula/Breast' && lastBmAmount != null ? {
+          // Use the last saved bottle on either caregiver's device, unless the
+          // user has already chosen a milk type while this request was loading.
+          ...(!bottleTypeTouchedRef.current && lastBottleType ? { bottleType: lastBottleType } : {}),
+          ...(hasAmount ? {
+            amount: data.data.amount.toString(),
+            unit: data.data.unitAbbr || prev.unit,
+          } : {}),
+          ...(!bottleTypeTouchedRef.current && lastBottleType === 'Formula/Breast' && hasAmount && lastBmAmount != null ? {
             breastMilkAmount: lastBmAmount.toString(),
             formulaAmount: (data.data.amount - lastBmAmount).toString(),
           } : {}),
@@ -340,6 +350,7 @@ export default function FeedForm({
 
   useEffect(() => {
     if (isOpen && !isInitialized) {
+      bottleTypeTouchedRef.current = false;
       // Fetch default settings when form opens
       fetchDefaultSettings();
       // Start each open with an untouched picker (default = start at "now").
@@ -477,11 +488,12 @@ export default function FeedForm({
   }, [isOpen, activity, initialTime]);
 
   useEffect(() => {
-    if (formData.type === 'BOTTLE' && !activity) {
+    if (isOpen && formData.type === 'BOTTLE' && !activity) {
       fetchLastAmount(formData.type);
       setFormData(prev => ({ ...prev, unit: defaultSettings.defaultBottleUnit }));
     }
-  }, [formData.type, babyId, defaultSettings.defaultBottleUnit]);
+    return () => { lastBottleRequestRef.current++; };
+  }, [isOpen, activity, formData.type, babyId, defaultSettings.defaultBottleUnit]);
 
   const handleAmountChange = (newAmount: string) => {
     // Allow any numeric values
@@ -680,7 +692,7 @@ export default function FeedForm({
         hadReaction: false,
         reactionDescription: '',
         reactionCause: '',
-        bottleType: '',
+        bottleType: 'Breast Milk',
         breastMilkAmount: '',
         formulaAmount: '',
         feedDuration: 0,
@@ -934,7 +946,7 @@ export default function FeedForm({
       hadReaction: false,
       reactionDescription: '',
       reactionCause: '',
-      bottleType: '',
+      bottleType: 'Breast Milk',
       breastMilkAmount: '',
       formulaAmount: '',
       feedDuration: 0,
@@ -1497,7 +1509,10 @@ export default function FeedForm({
                 loading={loading}
                 onAmountChange={handleAmountChange}
                 onUnitChange={(unit) => setFormData(prev => ({ ...prev, unit }))}
-                onBottleTypeChange={(bottleType) => setFormData(prev => ({ ...prev, bottleType, breastMilkAmount: '', formulaAmount: '' }))}
+                onBottleTypeChange={(bottleType) => {
+                  bottleTypeTouchedRef.current = true;
+                  setFormData(prev => ({ ...prev, bottleType, breastMilkAmount: '', formulaAmount: '' }));
+                }}
                 onNotesChange={(notes) => setFormData(prev => ({ ...prev, notes }))}
                 onIncrement={incrementAmount}
                 onDecrement={decrementAmount}

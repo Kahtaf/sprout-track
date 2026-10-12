@@ -126,3 +126,5 @@ When using this component in a multi-family context, you should:
 1. Import and use the family context to get the current family ID
 2. Pass the family ID to the FeedForm component
 3. The component will handle sending this ID to the API
+
+New bottle entries default to Breast Milk and prefill the milk type from the baby’s latest saved bottle, alongside its amount and unit. This follows the shared history for both caregivers, including the cached last bottle offline. A selection made while loading is preserved; editing keeps the original entry’s milk type.
